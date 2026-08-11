@@ -1,5 +1,7 @@
 # FounderOS
 
+**简体中文** | [English](README.en.md)
+
 > 把“我想做一个……”变成能够执行、持续推进、恢复上下文并接受验收的长期项目。
 
 **FounderOS** 是一个面向 Codex 的“项目总管 / AI Chief of Staff”Skill。它适合从零启动或接管产品、公司、游戏、App、网站及其他多阶段项目，尤其面向不熟悉目标领域、只希望提供目标、关键约束和重大决策的 Founder。
