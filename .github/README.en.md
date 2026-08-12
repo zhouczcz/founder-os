@@ -184,7 +184,7 @@ Validation boundary: deterministic tests can verify protocol text, state machine
 - FounderOS Agent / Thread capabilities depend on the tools and permissions exposed by the current Codex runtime. When a capability is unavailable, FounderOS must degrade honestly rather than fabricate an Agent or Thread.
 - The Python helpers provide deterministic schema, state-transition, CAS, and fencing checks. They do not replace the model's semantic judgment about goals, impact levels, candidate quality, or acceptance decisions.
 - “Keep going” does not grant FounderOS permission to pay, publish, delete data, change production systems, or make external commitments.
-- A public repository does not itself grant an open-source license. This repository currently has no license file.
+- Apache-2.0 does not grant rights to use project names, trademarks, service marks, or product names; consult the license text for the complete terms.
 
 ## Contributing
 
@@ -192,4 +192,6 @@ Use [Issues](https://github.com/zhouczcz/founder-os/issues) to report protocol g
 
 ## License
 
-This version does not currently include an open-source license. Until an explicit license is added, do not assume permission to copy, modify, or redistribute this repository.
+Copyright 2026 zhouczcz.
+
+This project is open source under the [Apache License 2.0](../LICENSE). You may use, modify, and distribute it—including for commercial purposes—subject to the license terms. See the repository's `LICENSE` file for the complete terms.
