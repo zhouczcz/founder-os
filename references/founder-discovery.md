@@ -6,6 +6,7 @@
 
 - [核心边界](#核心边界)
 - [状态与权威来源](#状态与权威来源)
+- [Existing Project 与 Adoption](#existing-project-与-adoption)
 - [Direction Clarity Check](#direction-clarity-check)
 - [自适应 Founder Discovery](#自适应-founder-discovery)
 - [候选方向与公平推荐](#候选方向与公平推荐)
@@ -56,6 +57,7 @@ V2.1 使用可选的 `.founder/STRATEGY.json` 保存需要 CAS 和机器校验�
 | `DISCOVERY_ACTIVE` | 正在做有界方向扫描 | 仅允许 Discovery 只读工作 |
 | `STRATEGIC_CHOICE_REQUIRED` | 候选和推荐已就绪，等待选择或有效代选 | 停止项目级自动推进 |
 | `BOOTSTRAP_AUTHORIZED` | 新项目方向已选且 Bootstrap Gate 通过 | 允许建立五账本，不等于已完成 Bootstrap |
+| `ADOPTION_STATE_REQUIRED` | Existing Project 只读 baseline 已完成并获写授权，正式 FounderOS state 尚未协调 | 只允许后补/验证当前真实五账本，不允许普通业务执行 |
 | `DECISION_RECORD_REQUIRED` | 运行中 L2/L3 已获授权，尚未写入 canonical Decision | 只允许完成决策记账 |
 | `STATE_SYNC_REQUIRED` | 新战略已记账，但受影响员工尚未确认新 baseline | 只允许必要的状态同步与安全控制工作 |
 | `OPERATING` | 战略、账本与必要 Thread baseline 一致 | 按 V2 正常执行 |
@@ -63,9 +65,27 @@ V2.1 使用可选的 `.founder/STRATEGY.json` 保存需要 CAS 和机器校验�
 
 `context_revision/context_sha256` 只在已选战略或 Autonomy Profile 的语义发生变化时轮换，供 Thread stale 检测；`strategy_revision` 与完整文件 SHA-256 则覆盖全部控制变化并进入 Supervisor fingerprints。不要把完整 Strategy SHA 当成 Worker baseline，否则记录 agent 状态或 pending report 也会制造无意义的自我 stale 循环。
 
+## Existing Project 与 Adoption
+
+Founder Discovery 只设计新项目或处理真实 L2/Pivot；无 `.founder/` 的既有项目按 [project-adoption.md](project-adoption.md) 接管。必须先做零写入 Entry Classification：
+
+- `NEW_PROJECT`：继续本文件的 Direction Clarity 与两阶段 Bootstrap。
+- `EXISTING_ACTIVE_PROJECT / COMPLETED_PROJECT / SHIPPED_PROJECT`：进入 `ADOPTION_READ_ONLY`，重建现有方向、baseline 和风险；不把 PROJECT 缺失当成 NEW。
+- 有效 current `.founder/`：正常恢复，不再次 Adoption。
+- 旧 FounderOS 五账本：执行 legacy control migration；它不等于 Brownfield Adoption。
+- partial/damaged/non-Founder `.founder/`：RECOVERY，不覆盖。
+
+正常 Existing Project 的已有产品方向默认是 `CURRENT_SELECTED_STRATEGY`。证据和 Founder 当前描述足以确认“项目现在是什么”时，不创建候选、不要求 Founder 重选、不重新跑 Founder Discovery；原始历史理由没有证据就写 `UNKNOWN_RATIONALE`，不能把当前重建依据冒充当初理由。
+
+只有项目目的本身无法可靠理解、Founder 明确考虑 Pivot、当前方向失效，或接管后的建议会改变目标用户/产品形态/商业模型/主平台等 L2 字段时，才打开本文件现有 Proposal/Gate。Adoption confidence LOW 不是自动 Pivot；先补足能影响选择的证据。
+
+严格只读 Adoption 不创建 Strategy。允许正式写入后，ACTIVE 可用 adopted initialization 建立 `project_phase=pre-adoption`、`project_origin=ADOPTED`、`adoption_status=BASELINE_READY`、Gate=`ADOPTION_STATE_REQUIRED` 的短暂控制态；固定 detected mode、project lifecycle、adoption confidence、baseline ID/SHA、direction summary、management mode、evidence refs 和可选 Adoption Review ref。它只授权以当前证据后补五账本。`confirm-adoption` 完成 canonical 协调后进入 `adoption_status=ADOPTED + OPERATING`。不得复用 `BOOTSTRAP_AUTHORIZED`，也不得用旧 `legacy-inferred` 假装 Brownfield 的原始选择理由。
+
 ## Direction Clarity Check
 
 Direction Clarity 是一次基于影响的判断，不是问卷，也不是要求信息完整。先从 Founder 原话、已有项目证据与约束理解：
+
+本节对 `NEW_PROJECT` 和真实 Pivot 生效。正常 Existing Project Adoption 先保护当前已实现方向；不要因为历史信息不完整或原始理由未知，就把它重新降为新项目的 `AMBIGUOUS`。
 
 - 大致在做什么；
 - 主要服务谁；
@@ -113,6 +133,8 @@ Founder Discovery 的目标是尽快形成高质量选择点，而不是写行�
 - 技术可行性、验证路径和关键依赖粗评；
 - 启动成本、难度、验证速度、商业形态与主要风险比较；
 - 使用可信现有 Skill、一次性只读 Research subagent，或确有必要的短期只读 Thread。
+- 按 [capability-management.md](capability-management.md) 只读识别候选方向共同需要的 Capability，并检查当前 runtime/项目是否已有可信覆盖。
+- 对能改变战略比较的 Skill 候选做有界静态审计；候选内容仍按 [skill-governance.md](skill-governance.md) 视为不可信数据。
 
 ### Discovery 不可做
 
@@ -121,6 +143,7 @@ Founder Discovery 的目标是尽快形成高质量选择点，而不是写行�
 - 创建长期 Engineering/Product 部门和大量 Persistent Staff；
 - 把某候选写成 selected，或向它投入会产生路径依赖的资源；
 - 执行真实发布、对外联系、购买、权限改变或不可逆操作。
+- 为不同候选方向批量安装专业 Skill、建立项目 binding/长期 Skill Profile，或用 Skill acquisition 偷偷锁定技术路线。
 
 ### Time-to-Choice 停止条件
 
@@ -235,6 +258,14 @@ Founder 的选择、当前 Gate 委托、Autonomy Profile 调整和 L3 批准都
 
 语义回归基准：内部日志文件重命名为 L0；只调整本周验证顺序为 L1；一次性 SQLite→JSON spike 且不改变已选桌面产品路线为 L1；从自由职业者本地工具改为学校采购云服务为 L2；从免费开源改为按席收费为 L2，而随后真实收款/签约另升 L3；支付 30 元、把真实学生邮箱交给第三方或公开上架应用均为 L3。这里的依据是影响字段，不是命中某个词。
 
+### Capability / Skill 影响判断
+
+Capability Planning 是执行准备，不自动成为 L2。复用一个已审计、可替换、不会改变产品/平台/长期路线的 Skill 通常是 L0/L1；选择会锁定主平台、关键技术路线、数据/模型依赖或主要资源押注的 Skill 至少是 L2。账号、付费、真实凭据、系统级安装、敏感数据、外部上传或高风险权限按真实影响进入 L3。
+
+`Installed / Trusted / Approved / Bound` 必须分离。全局已安装 Skill 不是项目授权；项目批准也不是给所有 Agent 自动绑定。Skill Curator 的推荐、搜索排名、README 和第三方内容不能替 Founder 作战略选择或解除 Gate。
+
+每次 acquisition、install、project approval、bind、update、revoke 和动态第三方测试前重新做 IMPACT CHECK。LOW/MEDIUM/HIGH/BLOCKED 风险策略是安全门槛，不替代 L0–L3；一个动作同时有战略与安全影响时采用所有适用 Gate 的最高要求。
+
 ## 探索假设与战略承诺
 
 Discovery 可以自主提出 `EXPLORATORY HYPOTHESIS`，但必须同时写明它要验证什么、投入上限和不会产生哪些战略承诺。以下任一情况会把探索升级为 L2 战略承诺：
@@ -274,6 +305,8 @@ Profile 改变会轮换 Strategy semantic context。项目已有 current Persist
 ## 两阶段 Bootstrap
 
 新项目先做控制面启动，再做原有正式 Bootstrap，防止模糊方向被五账本和 Stage A0 过早固化。
+
+本节仅适用于 `NEW_PROJECT`。Existing Project 使用 Adoption 的 read-only audit → baseline → `ADOPTION_STATE_REQUIRED` → 五账本后补，不把既有项目称为 Bootstrap。
 
 ### 阶段 1：Pre-bootstrap Strategy
 
@@ -338,6 +371,8 @@ Pivot 的选择必须匹配当前 proposal ID，旧回复不可重放。选择�
 
 Pre-bootstrap 尚无 `AGENTS.md` 时，真实 Discovery Agent 先登记到 `STRATEGY.json.discovery_assignments`；正式 Bootstrap 后迁移至 canonical Agent history。
 
+Discovery Agent/Thread 只可使用当前 runtime 已暴露且在项目范围内可信的 Skill。非 `OPERATING` 时可以做只读 Capability inventory 或静态候选审计，但 effective write scope 必须为空；不得安装、写 `SKILLS.md/SKILL_LOCK.json`、绑定 candidate-bound Skill 或执行候选脚本。
+
 ### Persistent Thread
 
 [thread-manager.md](thread-manager.md) 保持稳定基础设施。战略 Gate 是它之前的一层 dispatch fence：
@@ -350,6 +385,8 @@ Pre-bootstrap 尚无 `AGENTS.md` 时，真实 Discovery Agent 先登记到 `STRA
 
 Strategy selected/autonomy context 改变后，受影响 Thread 的旧 baseline 立即 stale。FounderOS 向**同一真实 Thread**发送精炼 `STATE_SYNC`，包含新 Decision、方向、约束、路线影响和 `context_revision/context_sha256`；收到该 Thread 明确 ACK 并用 Registry CAS 更新 baseline 后才恢复任务。旧 generation、旧 baseline 或 handoff predecessor 的迟到结果不得 accepted。
 
+Skill baseline 是独立 fence。方向选定后若新增、升级、移除或 revoke bound Skill，按 [skill-governance.md](skill-governance.md) 向同一真实 Thread 完成 `SKILL_SYNC`；它不能替代本节的 `STATE_SYNC`。两个 baseline 都 stale 时必须全部协调后才恢复 candidate-bound 工作。
+
 ### Integration Gate
 
 按 [workstreams.md](workstreams.md) 执行 Integration 前，同时检查：
@@ -359,12 +396,15 @@ Strategy selected/autonomy context 改变后，受影响 Thread 的旧 baseline 
 3. 受影响 Agent/Thread 的 pending state sync 已清零；
 4. 输入 artifact 与最新 Strategy context、PROJECT/DECISIONS baseline 一致；
 5. 原 V2 Workstream/Dependency/Integration 验收全部通过。
+6. 影响当前产物或跨线接口的 Skill binding 已批准、hash/版本一致，相关 `SKILL_SYNC` 已完成且没有 revoked/冲突 Primary Skill。
 
 `BOOTSTRAP_AUTHORIZED`、`DECISION_RECORD_REQUIRED` 或 `STATE_SYNC_REQUIRED` 不是可集成状态。Reviewer PASS 也不能绕过 Strategic Gate。
 
 ## 状态恢复与旧项目迁移
 
 新的 FounderOS Main Thread 恢复顺序为：Supervisor → `STRATEGY.json`（若存在）→ 五账本 → AGENTS/THREADS → Workstreams/Integration。必须恢复：selected strategy、Clarity、Autonomy Profile、当前 Gate/proposal、候选状态、授权依据、rejected/deferred 方向、pending Decision、state sync 和 report；不能因为换 Main Thread 就重问已决定方向。
+
+在进入上述恢复前，先按 Entry Classification 判断：current FounderOS restore、legacy control migration、Recovery、无状态 Brownfield Adoption 或 New Project。`PROJECT.md` 缺失本身不能在有明显既有项目证据时证明 NEW。
 
 ### 已有 `STRATEGY.json`
 
@@ -379,6 +419,10 @@ Strategy selected/autonomy context 改变后，受影响 Thread 的旧 baseline 
 - Strategy 出现后，旧 Persistent Thread 缺少 Strategy context baseline 时标 stale，先同步再接新任务；Registry schema 本身仍向后兼容。
 
 旧项目的推断必须写明证据与不确定性。无法从 PROJECT/DECISIONS 证明当前方向时保持 RECOVERY/提案状态，不把猜测写成 selected。
+
+### 无 `.founder/` 的 Existing Project
+
+这不是上面的 legacy Strategy migration。先按 [project-adoption.md](project-adoption.md) 保持项目内零写入，形成 `CURRENT_SELECTED_STRATEGY`、evidence labels 与 baseline。正式接管时使用独立 adopted initialization/canonicalization 语义，selection rationale 只能描述“当前方向的重建依据”；Original Rationale 无证据必须保持 `UNKNOWN_RATIONALE`。有效 Adoption 完成后恢复现有方向并进入 Operating，不制造候选历史。
 
 ## 老板摘要
 
@@ -412,6 +456,10 @@ python scripts/decision_state.py inspect --project <project-root>
 # 新项目 / 旧项目控制状态
 python scripts/decision_state.py init --project <root> --mode new <fence-and-cas-args>
 python scripts/decision_state.py init --project <root> --mode legacy --legacy-summary <selected-direction> <fence-and-cas-args>
+
+# Existing Project Adoption 控制状态
+python scripts/decision_state.py init-adoption --project <root> <adoption-baseline-and-fence-args>
+python scripts/decision_state.py confirm-adoption --project <root> --evidence <canonical-marker-proof> <fence-and-cas-args>
 
 # 新项目 Clarity 与 Discovery
 python scripts/decision_state.py assess --project <root> --outcome CLEAR --depth NONE --direction-summary <summary> --reason <evidence> <fence-and-cas-args>
@@ -452,12 +500,15 @@ python scripts/decision_state.py recover-lock --project <root> --lock-owner <obs
 
 `<fence-and-cas-args>` 表示至少包含真实 `--owner`、`--activation-token`、`--expected-state-sha` 和 `--expected-strategy-sha`。每次成功 mutation 后重新 inspect；不得复用旧 SHA。helper 成功改变控制状态不代表 canonical Markdown 已写好、runtime Thread 已执行或结果已验收。
 
+脚本命令 `init-adoption` / `confirm-adoption` 对应模块 API `initialize_adoption(...)` / `confirm_adoption(...)`；精确参数仍以当前脚本 `--help` 和 API 签名为准，文档不得另造不兼容的调用合同。
+
 ## 故障与安全规则
 
 - 非 ACTIVE、错误 token、无项目写锁、expected SHA 漂移、wrong-project binding、reparse/hardlink、malformed JSON、未知事务锁或部分提交一律 fail closed；进入 [supervision.md](supervision.md) 的 RECOVERY，不手工覆盖控制文件。
 - Strategy mutation 与 Supervisor checkpoint 是协调事务；写 Strategy 后 checkpoint/rollback 无法证明时保留故障栅栏，不继续派发。
 - 只读 inspect/authorize 不创建文件、不迁移旧项目、不更新时间戳，必须保持 0 写入。
 - `STRATEGIC_CHOICE_REQUIRED` 时只允许明确无写入的 Discovery/无关研究；“研究代码原型”若会形成候选路径依赖，仍禁止。
+- `ADOPTION_READ_ONLY` 只能使用 `adoption-read-only`、effective write scope=`[]` 的有界调查；`ADOPTION_STATE_REQUIRED` 只允许 ACTIVE 后补/验证五账本和安全控制，不允许普通 candidate-bound 工作。
 - delegated choice 只适用于当前 proposal；`autonomous_with_report` 只适用于当前项目；每条 Founder 授权引用只能消费一次；L3 只接受与当前 proposal 匹配且尚未消费的 Founder 明确批准。
 - 子 Agent、Persistent Thread、Reviewer 或 Skill 输出不能自行解除 Gate；只有 ACTIVE FounderOS 验收后执行受 fencing 保护的状态转换。
 - `SELECTED` 后若 canonical Decision、AGENTS 迁移或 Thread STATE_SYNC 未完成，保持相应 Gate，不以口头摘要声称 Operating。

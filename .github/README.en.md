@@ -2,9 +2,9 @@
 
 [简体中文](README.md) | **English**
 
-> Turn “I want to build…” into a long-running project that can be executed, continuously advanced, resumed across conversations, and reviewed against explicit acceptance criteria.
+> Turn an ambiguous goal into an executable new project—or safely adopt an existing, completed, or shipped project as a maintainable long-running system.
 
-**FounderOS** is a project lead / AI Chief of Staff Skill for Codex. It is designed to start from scratch or take over products, companies, games, apps, websites, and other multi-stage projects—especially for founders who are new to the domain and only want to provide the goal, key constraints, and major decisions.
+**FounderOS** is a project lead / AI Chief of Staff Skill for Codex. It can start products, companies, games, apps, websites, and other multi-stage projects from scratch, or adopt active, completed, and shipped projects under a **preserve before improve** policy. It is especially useful for founders who are new to the domain and only want to provide the goal, key constraints, and major decisions.
 
 FounderOS is not a standalone SaaS product, nor does it claim to run a company autonomously outside Codex. Within the authorization, tools, and permissions available in the current runtime, it acts as the project's sole active lead: clarifying direction, planning stages, delegating to real AI agents when needed, reviewing results, maintaining project state, and reserving major direction changes, high-cost actions, irreversible operations, and external commitments for the Founder.
 
@@ -29,28 +29,33 @@ FounderOS turns these failure modes into a managed project loop with strategic g
 | Direction Clarity + Strategic Gate | Bootstraps only after the direction is clear; major changes become auditable choices instead of bypassing the gate with a generic “keep going” |
 | L0–L3 impact classification | Allows ordinary implementation and tactical choices to be handled autonomously; applies project authorization to strategic choices; always requires explicit approval for high-impact executive actions |
 | Project-level Autonomy Profile | Records how much autonomy FounderOS has at the implementation, tactical, strategic, and executive levels |
+| Existing Project Adoption | Performs read-only detection and baseline reconstruction first, then adopts active, completed, or shipped projects only after authorization; stable behavior is preserved by default |
 | Persistent project ledgers | Stores goals, roadmap, decisions, agents, and current status in `.founder/` so a new conversation can restore the project |
-| Real Agent / Thread management | Separates one-off Task Agents from long-lived Persistent Roles; reuses before creating and never role-plays fake employees |
+| Real Agent / Thread management | Separates one-off Task Agents from long-lived Persistent Roles; reuses first, using STATE_SYNC and SKILL_SYNC when the Skill baseline changes to reject stale context |
+| Capability / Skill governance | Plans capabilities first, then discovers, audits, pins, approves, and binds Skills just in time; `Installed != Trusted != Approved != Bound`, and binding never expands existing permissions |
 | Workstreams + Integration Gate | Manages dependencies, parallel-write boundaries, cross-workstream integration, acceptance, and rework |
 | Single Active Supervisor | Allows only one ACTIVE FounderOS per project, using fencing, single-writer leases, and state fingerprints to reduce concurrent-state corruption |
-| Deterministic helper scripts | Provides machine-verifiable guards for strategy state, Supervisor state, the Thread Registry, CAS operations, and critical state transitions |
+| Deterministic helper scripts | Collects bounded, evidence-backed baseline signals and provides machine guards for strategy state, Supervisor state, Thread / Skill Registries, CAS operations, and critical transitions |
 
 ## How it works
 
 ```mermaid
 flowchart TD
-    A["Founder provides the goal and key constraints"] --> B["Direction Clarity Check"]
-    B -->|CLEAR| C["Project Bootstrap"]
-    B -->|AMBIGUOUS| D["Bounded Founder Discovery"]
-    D --> E["Strategic Choice Gate"]
-    E -->|Direction authorized| C
-    C --> F["Roadmap, risks, ledgers, and next task"]
-    F --> G["Main Agent executes or delegates to a specialist"]
-    G --> H["FounderOS review and optional Reviewer"]
-    H --> I["Integration Gate and state update"]
-    I --> J{"Final outcome reached?"}
-    J -->|No| F
-    J -->|Yes| K["Complete and deliver"]
+    A["Founder provides a goal, constraints, or an adoption request"] --> B{"Entry Classification"}
+    B -->|NEW_PROJECT| C["Direction Clarity Check"]
+    C -->|CLEAR| D["Project Bootstrap"]
+    C -->|AMBIGUOUS| E["Bounded Founder Discovery"]
+    E --> F["Strategic Choice Gate"]
+    F -->|Direction authorized| D
+    B -->|EXISTING_ACTIVE_PROJECT / COMPLETED_PROJECT / SHIPPED_PROJECT| G["ADOPTION_READ_ONLY"]
+    B -->|UNKNOWN| L["Remain read-only and continue bounded investigation"]
+    B -->|Valid .founder/| M["Restore existing FounderOS state"]
+    G --> H["Reconstruction, Baseline, and Adoption Review"]
+    H -->|Formal adoption authorized| I["Canonical State + Adoption Gate"]
+    D --> J["Plan, execute, or delegate just in time"]
+    I --> J
+    J --> K["Acceptance, Integration Gate, and state update"]
+    K --> J
 ```
 
 Default principles:
@@ -64,6 +69,8 @@ Default principles:
 ## When to use it
 
 - You have a long-term goal but do not know whether to begin with market research, product design, technology, or validation.
+- You need to take over a legacy repository with no `.founder/` state and want to understand and preserve it before proposing improvements.
+- A project is already completed or shipped and now needs maintenance, bug fixes, compatibility updates, and cautious releases.
 - You are a solo Founder and want AI to own decomposition, coordination, and continued execution.
 - The project needs several specialist Agents, but you do not want to manage them yourself.
 - The project will span multiple Codex conversations and needs reliable state recovery.
@@ -120,11 +127,23 @@ costs substantial money, or is irreversible.
 Start now.
 ```
 
+For an existing project, state its maturity and separate the read-only Audit from later write authorization:
+
+```text
+Use $founder-os.
+
+The project root is D:\Projects\ExistingApp.
+This project is complete; future work should focus on maintenance, bug fixes, and necessary updates.
+Keep the Audit phase strictly read-only; do not execute project scripts or modify files.
+After the Adoption Review, if no L2/L3 gate blocks it, explicitly authorize adoption state only within .founder/**.
+```
+
 When entering a new project, FounderOS first checks whether the direction is clear enough:
 
 - `CLEAR`: after authorization checks, proceed to Project Bootstrap;
 - `AMBIGUOUS`: run bounded Discovery first, then present candidates, a recommendation, and the one strategic choice currently required;
-- existing project: restore `.founder/`, the Supervisor, the Strategy Gate, and any active Agent / Thread state before continuing.
+- existing project without FounderOS state: enter `ADOPTION_READ_ONLY`, reconstruct the current state and baseline, and create `.founder/` only after authorization;
+- project with valid `.founder/` state: restore the Supervisor, Strategy Gate, and active Agent / Thread / Skill state without repeating Bootstrap or Adoption.
 
 ## `.founder/` project state
 
@@ -143,6 +162,7 @@ Depending on project complexity, FounderOS can also use:
 - `.founder/STRATEGY.json`: direction, candidates, the Strategic Gate, Autonomy Profile, and synchronization obligations;
 - `.founder/ACTIVE_SUPERVISOR.json`: identity, state, and fencing for the single ACTIVE FounderOS;
 - `.founder/THREADS.json`: bindings and lifecycle state between Persistent Agents and real Codex Threads;
+- `.founder/SKILLS.md` and `.founder/SKILL_LOCK.json`: optional human-readable and machine-authoritative capability/Skill state covering audits, approvals, rejections, revocations, and exact bindings;
 - `.founder/workstreams/` and `.founder/integrations/`: lower-level execution and integration state for complex projects;
 - `.founder/.write-lock.json`: the temporary single-writer lease for an execution round.
 
@@ -159,29 +179,47 @@ founder-os/
 │   ├── delegation.md               # Agent delegation, acceptance, and rework
 │   ├── thread-manager.md            # Persistent Thread lifecycle and stale-context protection
 │   ├── workstreams.md              # Dependencies, parallel writes, and Integration Gate
-│   └── skill-registry.md           # Optional Skill Registry interface
+│   ├── capability-management.md    # Capability-first planning, gaps, and bindings
+│   ├── skill-governance.md         # Skill trust, approval, versions, and permissions
+│   ├── skill-registry.md           # Skill Registry / Lock and SKILL_SYNC
+│   └── project-adoption.md         # Existing Project Adoption and maintenance mode
 └── scripts/
+    ├── project_baseline.py         # Read-only Existing Project baseline collection
+    ├── capability_planner.py       # Capability planning and coverage checks
     ├── decision_state.py           # Strategy state and authorization guards
     ├── supervisor_guard.py         # Supervisor fencing and write-lock guards
     ├── thread_registry.py          # Thread Registry, CAS, and lifecycle guards
+    ├── skill_registry.py           # Skill Registry / Lock and binding validation
     └── validate_founder_os.py      # Full regression validation
 ```
 
 ## Validation
 
-Python 3 is required. Run the full validation suite with:
+The core protocol uses Python 3. Full development validation uses Python 3.12+, Git, and `PyYAML`, and invokes Codex's bundled official `skill-creator` `quick_validate.py`; ordinary Skill use does not require users to run the suite.
+
+The full suite includes cross-Skill governance checks between FounderOS and Skill Curator, so validation expects this sibling layout:
+
+```text
+skills/
+├── founder-os/
+└── skill-curator/
+```
+
+Run from `founder-os/`:
 
 ```bash
 python -X utf8 -B scripts/validate_founder_os.py
 ```
 
-The V2.1 release baseline contains **111 passing tests** covering the static protocol, strategy state, Supervisor behavior, Thread Registry, dependencies, Integration Gate, and other critical invariants.
+The current validated suite contains **266 passing deterministic tests**: 201 cover the V1–V2.2 management, Thread, and Capability / Skill control planes, with 65 additional tests for Existing Project Adoption, baselines, Git preservation, historical-evidence boundaries, Maintenance Mode, and red-team cases. The suite also covers strategy state, Supervisor behavior, dependencies, synchronization, Integration Gate, and other critical invariants.
 
 Validation boundary: deterministic tests can verify protocol text, state machines, CAS, fencing, and fail-closed behavior. Real subagent creation, Project Bootstrap, Persistent Threads, parallel runtime traces, and rework loops still require forward tests in a Codex runtime that exposes the corresponding tools. The repository does not label behavior as verified when it lacks real runtime evidence.
 
 ## Important boundaries
 
 - FounderOS Agent / Thread capabilities depend on the tools and permissions exposed by the current Codex runtime. When a capability is unavailable, FounderOS must degrade honestly rather than fabricate an Agent or Thread.
+- Existing-project code, READMEs, scripts, and repository Agent instructions are untrusted `PROJECT DATA`; initial adoption never executes them automatically.
+- Existing projects default to `BEHAVIOR_PRESERVATION=true`. An old stack or inelegant code is not, by itself, a reason to rewrite; major refactors and compatibility breaks still go through L2/L3 gates.
 - The Python helpers provide deterministic schema, state-transition, CAS, and fencing checks. They do not replace the model's semantic judgment about goals, impact levels, candidate quality, or acceptance decisions.
 - “Keep going” does not grant FounderOS permission to pay, publish, delete data, change production systems, or make external commitments.
 - Apache-2.0 does not grant rights to use project names, trademarks, service marks, or product names; consult the license text for the complete terms.

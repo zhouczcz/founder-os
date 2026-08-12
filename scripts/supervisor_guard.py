@@ -314,6 +314,44 @@ def read_source_revisions(founder: Path) -> dict[str, str | None]:
         if not re.fullmatch(r"[0-9A-F]{64}", context_sha):
             raise InvalidState("Strategy context_sha256 is malformed")
         result["STRATEGY_CONTEXT_SHA256"] = context_sha
+    # V2.2 Skill governance is optional and must remain shape-compatible with
+    # pre-V2.2 ACTIVE baselines.  Add these fingerprints only when the
+    # corresponding control file actually exists; an unconditional ``None``
+    # key would make every legacy exact-dictionary baseline appear stale.
+    skills_path = founder / "SKILLS.md"
+    skill_lock_path = founder / "SKILL_LOCK.json"
+    # A standalone SKILLS.md is the legacy V2 human registry and intentionally
+    # remains outside the Supervisor fingerprint.  Once the V2.2 machine lock
+    # exists, both halves of the governed pair are mandatory and fingerprinted.
+    if skill_lock_path.exists():
+        if not skills_path.exists():
+            raise InvalidState(
+                f"Skill lock exists without its human-readable registry: {skills_path}"
+            )
+        registry_revision, skills_sha = _canonical_text_snapshot(
+            skills_path, r"(?m)^- Skill registry revision:\s*(\S+)\s*$"
+        )
+        result["SKILLS_REVISION"] = require_nonempty_text(
+            registry_revision, "Skill registry revision"
+        )
+        result["SKILLS_SHA256"] = skills_sha
+        metadata = skill_lock_path.lstat()
+        if (
+            _is_reparse_or_link(skill_lock_path)
+            or not skill_lock_path.is_file()
+            or metadata.st_nlink != 1
+        ):
+            raise InvalidState(
+                f"Skill lock must be a direct single-link file: {skill_lock_path}"
+            )
+        raw, skill_lock = read_json_object(skill_lock_path)
+        result["SKILL_LOCK_REVISION"] = require_nonempty_text(
+            skill_lock.get("skill_lock_revision"), "Skill lock revision"
+        )
+        result["SKILL_LOCK_SHA256"] = sha256_bytes(raw)
+        result["SKILL_REGISTRY_REVISION"] = require_nonempty_text(
+            skill_lock.get("skill_registry_revision"), "Skill registry revision"
+        )
     return result
 
 

@@ -47,20 +47,30 @@ GATE_STATES = {
     "DECISION_RECORD_REQUIRED",
     "STATE_SYNC_REQUIRED",
     "EXECUTIVE_APPROVAL_REQUIRED",
+    "ADOPTION_STATE_REQUIRED",
 }
-GATE_CONTEXTS = {"bootstrap", "pivot", "autonomy", "executive", "none"}
+GATE_CONTEXTS = {"bootstrap", "pivot", "autonomy", "executive", "adoption", "none"}
 DECISION_LEVELS = {"L0", "L1", "L2", "L3"}
-SELECTION_AUTHORITIES = {"founder", "delegated", "autonomy", "legacy-inferred", "founder-input"}
+SELECTION_AUTHORITIES = {
+    "founder",
+    "delegated",
+    "autonomy",
+    "legacy-inferred",
+    "founder-input",
+    "adoption-reconstructed",
+}
 STRATEGIC_AUTONOMY = {"recommend_then_ask", "autonomous_with_report", "require_approval"}
 THREAD_STRATEGY_SCOPES = {
     "candidate-bound",
     "discovery-read-only",
+    "adoption-read-only",
     "unrelated-read-only",
     "control-recovery",
 }
 ACTION_TYPES = {
     "direction-assessment",
     "discovery-read-only",
+    "adoption-read-only",
     "bootstrap",
     "persistent-thread-create",
     "candidate-bound-work",
@@ -70,6 +80,37 @@ ACTION_TYPES = {
     "integration",
     "subagent-dispatch",
     "executive-action",
+}
+
+PROJECT_ORIGINS = {"NEW", "ADOPTED", "UNKNOWN_LEGACY"}
+PROJECT_LIFECYCLES = {
+    "ACTIVE_DEVELOPMENT",
+    "FEATURE_COMPLETE",
+    "SHIPPED",
+    "MAINTENANCE",
+    "FROZEN",
+    "ARCHIVED",
+}
+ADOPTION_STATUSES = {
+    "NOT_APPLICABLE",
+    "READ_ONLY_AUDIT",
+    "BASELINE_READY",
+    "ADOPTED",
+    "BLOCKED",
+}
+ADOPTION_CONFIDENCES = {"HIGH", "MEDIUM", "LOW"}
+ADOPTION_DETECTED_MODES = {
+    "EXISTING_ACTIVE_PROJECT",
+    "COMPLETED_PROJECT",
+    "SHIPPED_PROJECT",
+}
+ADOPTION_MANAGEMENT_MODES = {
+    "CONTINUE_DEVELOPMENT",
+    "MAINTENANCE_MODE",
+    "STABILIZATION",
+    "MODERNIZATION_PROPOSAL",
+    "FROZEN",
+    "ARCHIVED",
 }
 
 
@@ -375,6 +416,74 @@ def _validate_autonomy(value: Any) -> None:
     _text(value.get("evidence"), "autonomy evidence")
 
 
+def _validate_adoption_metadata(state: dict[str, Any]) -> dict[str, Any] | None:
+    """Validate the optional V2.3 Brownfield control-plane extension.
+
+    V2.2 Strategy records intentionally remain valid without these fields.  If
+    any Adoption field is present, the complete project-bound set is required
+    so a partially upgraded control record fails closed.
+    """
+
+    field_names = {
+        "project_origin",
+        "project_lifecycle",
+        "adoption_status",
+        "adoption_confidence",
+        "adoption",
+    }
+    present = {name for name in field_names if name in state}
+    if not present:
+        return None
+    if present != field_names:
+        raise guard.InvalidState("Adoption Strategy metadata is partial")
+    if state.get("project_origin") not in PROJECT_ORIGINS:
+        raise guard.InvalidState("Invalid project_origin")
+    if state.get("project_origin") != "ADOPTED":
+        raise guard.InvalidState("Brownfield Adoption records require project_origin=ADOPTED")
+    if state.get("project_lifecycle") not in PROJECT_LIFECYCLES:
+        raise guard.InvalidState("Invalid project_lifecycle")
+    if state.get("adoption_status") not in ADOPTION_STATUSES:
+        raise guard.InvalidState("Invalid adoption_status")
+    if state.get("adoption_confidence") not in ADOPTION_CONFIDENCES:
+        raise guard.InvalidState("Invalid adoption_confidence")
+    adoption = state.get("adoption")
+    if not isinstance(adoption, dict):
+        raise guard.InvalidState("adoption must be an object")
+    if adoption.get("detected_mode") not in ADOPTION_DETECTED_MODES:
+        raise guard.InvalidState("Invalid Adoption detected_mode")
+    if adoption.get("management_mode") not in ADOPTION_MANAGEMENT_MODES:
+        raise guard.InvalidState("Invalid Adoption management_mode")
+    baseline_id = _identifier(adoption.get("baseline_id"), "Adoption baseline_id")
+    if not re.fullmatch(r"AB-[0-9A-F]{16}", baseline_id):
+        raise guard.InvalidState("Adoption baseline_id must be AB- plus 16 uppercase hex characters")
+    baseline_sha = _sha_or_absent(
+        adoption.get("baseline_sha256"), "Adoption baseline_sha256"
+    )
+    if baseline_sha == "ABSENT":
+        raise guard.InvalidState("Adoption baseline_sha256 cannot be ABSENT")
+    if baseline_id != f"AB-{baseline_sha[:16]}":
+        raise guard.InvalidState("Adoption baseline_id does not bind baseline_sha256")
+    if adoption.get("behavior_preservation") is not True:
+        raise guard.InvalidState("Brownfield Adoption requires behavior_preservation=true")
+    evidence_refs = _validate_string_list(
+        adoption.get("evidence_refs"), "Adoption evidence_refs"
+    )
+    if not evidence_refs:
+        raise guard.InvalidState("Adoption evidence_refs cannot be empty")
+    _validate_adoption_mode_pair(
+        adoption["detected_mode"],
+        state["project_lifecycle"],
+        adoption["management_mode"],
+    )
+    _optional_text(adoption.get("adoption_review_ref"), "Adoption review reference")
+    _optional_text(adoption.get("adopted_at"), "Adoption adopted_at")
+    if state.get("adoption_status") == "ADOPTED" and adoption.get("adopted_at") is None:
+        raise guard.InvalidState("ADOPTED Strategy requires adopted_at evidence")
+    if state.get("adoption_status") == "BASELINE_READY" and adoption.get("adopted_at") is not None:
+        raise guard.InvalidState("BASELINE_READY Strategy cannot already have adopted_at evidence")
+    return adoption
+
+
 def validate_strategy(state: dict[str, Any], root: Path) -> None:
     if state.get("schema_version") != SCHEMA_VERSION:
         raise guard.InvalidState("Unsupported or missing Strategy schema_version")
@@ -386,8 +495,9 @@ def validate_strategy(state: dict[str, Any], root: Path) -> None:
         raise guard.InvalidState("Strategy context_sha256 cannot be ABSENT")
     _text(state.get("created_at"), "strategy created_at")
     _text(state.get("updated_at"), "strategy updated_at")
-    if state.get("project_phase") not in {"pre-bootstrap", "bootstrapped"}:
+    if state.get("project_phase") not in {"pre-bootstrap", "pre-adoption", "bootstrapped"}:
         raise guard.InvalidState("Invalid Strategy project_phase")
+    adoption = _validate_adoption_metadata(state)
 
     binding = state.get("project_binding")
     if not isinstance(binding, dict):
@@ -679,6 +789,7 @@ def validate_strategy(state: dict[str, Any], root: Path) -> None:
         "STRATEGIC_CHOICE_REQUIRED",
         "BOOTSTRAP_AUTHORIZED",
     }
+    preadoption_gates = {"ADOPTION_STATE_REQUIRED"}
     bootstrapped_gates = {
         "DISCOVERY_ACTIVE",
         "STRATEGIC_CHOICE_REQUIRED",
@@ -689,8 +800,19 @@ def validate_strategy(state: dict[str, Any], root: Path) -> None:
     }
     if phase == "pre-bootstrap" and gate_state not in prebootstrap_gates:
         raise guard.InvalidState("Pre-bootstrap Strategy has an unreachable Gate state")
+    if phase == "pre-adoption" and gate_state not in preadoption_gates:
+        raise guard.InvalidState("Pre-adoption Strategy has an unreachable Gate state")
     if phase == "bootstrapped" and gate_state not in bootstrapped_gates:
         raise guard.InvalidState("Bootstrapped Strategy has an unreachable Gate state")
+    if phase == "pre-adoption" and adoption is None:
+        raise guard.InvalidState("Pre-adoption Strategy requires complete Adoption metadata")
+    if adoption is not None:
+        if phase == "pre-adoption" and state["adoption_status"] != "BASELINE_READY":
+            raise guard.InvalidState("Pre-adoption Strategy must be BASELINE_READY")
+        if phase == "bootstrapped" and state["adoption_status"] != "ADOPTED":
+            raise guard.InvalidState("Bootstrapped adopted Strategy must be ADOPTED")
+        if phase == "pre-bootstrap":
+            raise guard.InvalidState("A new-project pre-bootstrap Strategy cannot contain Adoption metadata")
     expected_contexts = {
         "DIRECTION_CHECK_REQUIRED": {"bootstrap"},
         "BOOTSTRAP_AUTHORIZED": {"bootstrap"},
@@ -698,6 +820,7 @@ def validate_strategy(state: dict[str, Any], root: Path) -> None:
         "DECISION_RECORD_REQUIRED": {"pivot", "executive"},
         "STATE_SYNC_REQUIRED": {"pivot", "autonomy"},
         "EXECUTIVE_APPROVAL_REQUIRED": {"executive"},
+        "ADOPTION_STATE_REQUIRED": {"adoption"},
     }
     if gate_state in expected_contexts and gate["context"] not in expected_contexts[gate_state]:
         raise guard.InvalidState("Strategic Gate state/context combination is unreachable")
@@ -707,6 +830,15 @@ def validate_strategy(state: dict[str, Any], root: Path) -> None:
             raise guard.InvalidState("Discovery Gate context does not match project phase")
     if gate["state"] == "BOOTSTRAP_AUTHORIZED" and direction["strategy_status"] != "SELECTED":
         raise guard.InvalidState("Bootstrap requires a selected direction")
+    if gate_state == "ADOPTION_STATE_REQUIRED" and (
+        direction["strategy_status"] != "SELECTED"
+        or direction.get("selection_authority") != "adoption-reconstructed"
+        or discovery.get("depth") != "NONE"
+        or candidates
+    ):
+        raise guard.InvalidState(
+            "Adoption Gate requires the current reconstructed direction without Founder Discovery"
+        )
     if gate_state == "DECISION_RECORD_REQUIRED" and decision["status"] != "pending":
         raise guard.InvalidState("DECISION_RECORD_REQUIRED needs one pending strategic decision")
     if (
@@ -734,8 +866,8 @@ def validate_strategy(state: dict[str, Any], root: Path) -> None:
             or direction["selected_strategy_id"] != selected_candidate["candidate_id"]
         ):
             raise guard.InvalidState("Selected candidate and Direction state disagree")
-    if phase == "pre-bootstrap" and pending_sync:
-        raise guard.InvalidState("Pre-bootstrap projects cannot have persistent STATE_SYNC obligations")
+    if phase in {"pre-bootstrap", "pre-adoption"} and pending_sync:
+        raise guard.InvalidState("Pre-operating projects cannot have persistent STATE_SYNC obligations")
     expected_context_sha = guard.sha256_bytes(guard.canonical_json_bytes(_context_material(state)))
     if state["context_sha256"] != expected_context_sha:
         raise guard.InvalidState("Strategy semantic context hash does not match content")
@@ -1107,6 +1239,232 @@ def initialize_strategy(
         expected_state_sha=expected_state_sha,
         expected_strategy_sha=expected_strategy_sha,
         operation="STRATEGY_INITIALIZED",
+        mutate=mutate,
+    )
+
+
+def _observe_adoption_baseline(root: Path) -> tuple[str, str]:
+    """Recompute the read-only project baseline used by the Adoption CAS."""
+
+    # Local import keeps V2.2 new/legacy paths independent from the optional
+    # Brownfield inspector and avoids any import-time project access.
+    import project_baseline as baseline_api
+
+    report = baseline_api.inspect_project(str(root))
+    completeness = report.get("completeness", {})
+    anchor_usable = completeness.get(
+        "baseline_anchor_usable", completeness.get("baseline_usable")
+    )
+    if report.get("result") not in {"COMPLETE", "PARTIAL"} or anchor_usable is not True:
+        raise guard.Conflict(
+            "ADOPTION_BASELINE_UNUSABLE: the deterministic project anchor is incomplete or unstable"
+        )
+    baseline_id = _identifier(report.get("baseline_id"), "observed Adoption baseline_id")
+    baseline_sha = _sha_or_absent(
+        report.get("baseline_sha256"), "observed Adoption baseline_sha256"
+    )
+    if baseline_sha == "ABSENT":
+        raise guard.InvalidState("Observed Adoption baseline cannot be ABSENT")
+    return baseline_id, baseline_sha
+
+
+def _validate_adoption_mode_pair(
+    detected_mode: str, project_lifecycle: str, management_mode: str
+) -> None:
+    if detected_mode not in ADOPTION_DETECTED_MODES:
+        raise guard.InvalidState("Invalid Adoption detected_mode")
+    if project_lifecycle not in PROJECT_LIFECYCLES:
+        raise guard.InvalidState("Invalid Adoption project_lifecycle")
+    if management_mode not in ADOPTION_MANAGEMENT_MODES:
+        raise guard.InvalidState("Invalid Adoption management_mode")
+    if detected_mode == "EXISTING_ACTIVE_PROJECT" and project_lifecycle != "ACTIVE_DEVELOPMENT":
+        raise guard.InvalidState(
+            "EXISTING_ACTIVE_PROJECT requires lifecycle ACTIVE_DEVELOPMENT"
+        )
+    if detected_mode == "COMPLETED_PROJECT" and project_lifecycle not in {
+        "FEATURE_COMPLETE",
+        "MAINTENANCE",
+        "FROZEN",
+        "ARCHIVED",
+    }:
+        raise guard.InvalidState(
+            "COMPLETED_PROJECT requires a completed or post-completion lifecycle"
+        )
+    if detected_mode == "SHIPPED_PROJECT" and project_lifecycle not in {
+        "SHIPPED",
+        "MAINTENANCE",
+        "FROZEN",
+        "ARCHIVED",
+    }:
+        raise guard.InvalidState("SHIPPED_PROJECT requires a shipped or post-shipped lifecycle")
+    if detected_mode in {"COMPLETED_PROJECT", "SHIPPED_PROJECT"} and management_mode == "CONTINUE_DEVELOPMENT":
+        raise guard.InvalidState(
+            "Completed or shipped Adoption cannot silently resume product development"
+        )
+    if project_lifecycle == "FROZEN" and management_mode != "FROZEN":
+        raise guard.InvalidState("FROZEN lifecycle requires FROZEN management mode")
+    if project_lifecycle == "ARCHIVED" and management_mode != "ARCHIVED":
+        raise guard.InvalidState("ARCHIVED lifecycle requires ARCHIVED management mode")
+    if management_mode == "FROZEN" and project_lifecycle != "FROZEN":
+        raise guard.InvalidState("FROZEN management mode requires FROZEN lifecycle")
+    if management_mode == "ARCHIVED" and project_lifecycle != "ARCHIVED":
+        raise guard.InvalidState("ARCHIVED management mode requires ARCHIVED lifecycle")
+
+
+def initialize_adoption(
+    project: str,
+    *,
+    owner: str,
+    activation_token: str,
+    expected_state_sha: str,
+    expected_strategy_sha: str,
+    detected_mode: str,
+    project_lifecycle: str,
+    adoption_confidence: str,
+    baseline_id: str,
+    baseline_sha256: str,
+    direction_summary: str,
+    management_mode: str,
+    evidence_refs: list[str],
+    adoption_review_ref: str | None = None,
+) -> dict[str, Any]:
+    """Bind a verified read-only Brownfield baseline before ledger creation."""
+
+    _validate_adoption_mode_pair(detected_mode, project_lifecycle, management_mode)
+    if adoption_confidence not in ADOPTION_CONFIDENCES:
+        raise guard.InvalidState("Invalid Adoption confidence")
+    baseline_id = _identifier(baseline_id, "Adoption baseline_id")
+    baseline_sha256 = _sha_or_absent(baseline_sha256, "Adoption baseline_sha256")
+    if baseline_sha256 == "ABSENT" or baseline_id != f"AB-{baseline_sha256[:16]}":
+        raise guard.InvalidState("Adoption baseline ID must bind the exact baseline SHA-256")
+    direction_summary = _text(direction_summary, "current selected strategy summary")
+    evidence_refs = _validate_string_list(evidence_refs, "Adoption evidence_refs")
+    if not evidence_refs:
+        raise guard.InvalidState("Adoption requires at least one evidence reference")
+    adoption_review_ref = _optional_text(
+        adoption_review_ref, "Adoption review reference"
+    )
+
+    def mutate(state: dict[str, Any] | None, founder: Path):
+        if state is not None:
+            raise guard.Conflict("Strategy state already exists; inspect or recover it")
+        ledger_presence = {name: (founder / name).exists() for name in CORE_LEDGERS}
+        if any(ledger_presence.values()):
+            raise guard.Conflict(
+                "Brownfield Adoption initialization requires zero canonical ledgers"
+            )
+        allowed_control_names = {
+            guard.STATE_NAME,
+            guard.LOCK_NAME,
+            STRATEGY_LOCK_NAME,
+        }
+        unexpected = sorted(
+            entry.name for entry in founder.iterdir() if entry.name not in allowed_control_names
+        )
+        if unexpected:
+            raise guard.Conflict(
+                "NAMESPACE_COLLISION: pre-adoption .founder contains unrecognized content: "
+                + ", ".join(unexpected)
+            )
+        root = founder.parent
+        observed_id, observed_sha = _observe_adoption_baseline(root)
+        if (observed_id, observed_sha) != (baseline_id, baseline_sha256):
+            raise guard.Conflict(
+                "ADOPTION_BASELINE_DRIFT: project evidence changed after the read-only review"
+            )
+        now = guard.utc_now()
+        value: dict[str, Any] = {
+            "schema_version": SCHEMA_VERSION,
+            "strategy_revision": _new_revision("ST"),
+            "previous_strategy_sha256": "ABSENT",
+            "context_revision": "",
+            "context_sha256": "",
+            "created_at": now,
+            "updated_at": now,
+            "project_phase": "pre-adoption",
+            "project_origin": "ADOPTED",
+            "project_lifecycle": project_lifecycle,
+            "adoption_status": "BASELINE_READY",
+            "adoption_confidence": adoption_confidence,
+            "adoption": {
+                "detected_mode": detected_mode,
+                "management_mode": management_mode,
+                "baseline_id": baseline_id,
+                "baseline_sha256": baseline_sha256,
+                "behavior_preservation": True,
+                "evidence_refs": evidence_refs,
+                "adoption_review_ref": adoption_review_ref,
+                "adopted_at": None,
+            },
+            "project_binding": {
+                "project_root": str(root),
+                "project_binding_id": _project_binding_id(root),
+            },
+            "autonomy_profile": _default_profile("adoption-default", evidence_refs[0]),
+            "direction": {
+                "clarity": "CLEAR",
+                "clarity_reason": "Current direction is reconstructed from existing project evidence",
+                "strategy_status": "SELECTED",
+                "selected_strategy_id": "current-selected-strategy",
+                "selected_strategy_summary": direction_summary,
+                "selection_authority": "adoption-reconstructed",
+                "selection_rationale": (
+                    "Current direction is preserved for Adoption; original historical rationale "
+                    "is not asserted"
+                ),
+            },
+            "discovery": {
+                "depth": "NONE",
+                "candidates": [],
+                "recommendation_id": None,
+                "recommendation": None,
+                "evidence": evidence_refs,
+                "single_candidate_reason": None,
+            },
+            "gate": {
+                "state": "ADOPTION_STATE_REQUIRED",
+                "context": "adoption",
+                "decision_level": None,
+                "proposal_id": None,
+                "reason": "Verified baseline is ready; canonical current-state ledgers are required",
+                "authorization_ref": None,
+                "action_scope": None,
+                "opened_at": now,
+                "resolved_at": None,
+            },
+            "decision_record": {
+                "status": "not-required",
+                "decision_id": None,
+                "level": None,
+                "proposal_id": None,
+                "selected_strategy_id": None,
+                "selection_authority": None,
+                "authorization_ref": None,
+                "canonical_evidence": None,
+                "action_scope": None,
+            },
+            "discovery_assignments": [],
+            "pending_state_sync": [],
+            "reporting": {"pending_decision_ids": [], "reported": []},
+            "discovery_history": [],
+            "proposal_ids": [],
+            "authorization_receipts": [],
+        }
+        _refresh_context(value, rotate=True)
+        return value, {
+            "mode": "adoption",
+            "gate": value["gate"]["state"],
+            "baseline_id": baseline_id,
+            "baseline_sha256": baseline_sha256,
+        }
+
+    return _mutate_strategy(
+        project,
+        owner=owner,
+        activation_token=activation_token,
+        expected_state_sha=expected_state_sha,
+        expected_strategy_sha=expected_strategy_sha,
+        operation="ADOPTION_STRATEGY_INITIALIZED",
         mutate=mutate,
     )
 
@@ -2257,6 +2615,192 @@ def confirm_canonical(
     )
 
 
+def _has_exact_ledger_field(text_value: str, label: str, value: str) -> bool:
+    return bool(
+        re.search(
+            rf"(?im)^\s*(?:[-*]\s*)?{re.escape(label)}\s*:\s*`?{re.escape(value)}`?\s*$",
+            text_value,
+        )
+    )
+
+
+def _validate_adoption_ledgers(founder: Path, state: dict[str, Any]) -> None:
+    for name in CORE_LEDGERS:
+        _direct_file(founder / name, name)
+    project_text = _read_utf8_direct(founder / "PROJECT.md", "PROJECT.md")
+    status_text = _read_utf8_direct(founder / "STATUS.md", "STATUS.md")
+    roadmap_text = _read_utf8_direct(founder / "ROADMAP.md", "ROADMAP.md")
+    decisions_text = _read_utf8_direct(founder / "DECISIONS.md", "DECISIONS.md")
+    agents_text = _read_utf8_direct(founder / "AGENTS.md", "AGENTS.md")
+    adoption = state["adoption"]
+    required_project_fields = {
+        "Project Origin": "ADOPTED",
+        "Project Lifecycle": state["project_lifecycle"],
+        "Adoption Status": "ADOPTED",
+        "Adoption Mode": adoption["detected_mode"],
+        "Adoption Confidence": state["adoption_confidence"],
+        "Adoption Baseline ID": adoption["baseline_id"],
+        "Adoption Baseline SHA-256": adoption["baseline_sha256"],
+        "Behavior Preservation": "true",
+    }
+    missing = [
+        label
+        for label, value in required_project_fields.items()
+        if not _has_exact_ledger_field(project_text, label, value)
+    ]
+    if missing:
+        raise guard.Conflict(
+            "PROJECT.md is not bound to the approved Adoption baseline: "
+            + ", ".join(missing)
+        )
+    if not re.search(
+        r"(?im)^\s*(?:[-*]\s*)?Adoption Date\s*:\s*`?\d{4}-\d{2}-\d{2}`?\s*$",
+        project_text,
+    ):
+        raise guard.Conflict("PROJECT.md must record an exact ISO Adoption Date")
+    for label in (
+        "Observed Purpose",
+        "Current Users",
+        "Current Product",
+        "Known Constraints",
+        "Current Maturity",
+    ):
+        match = re.search(
+            rf"(?im)^\s*(?:[-*]\s*)?{re.escape(label)}\s*:\s*(\S.*)\s*$",
+            project_text,
+        )
+        if match is None or match.group(1).strip(" `") in {"", "..."}:
+            raise guard.Conflict(
+                f"PROJECT.md must record a non-placeholder evidence-bounded {label}"
+            )
+    if not _has_exact_ledger_field(
+        status_text, "Management Mode", adoption["management_mode"]
+    ) or not _has_exact_ledger_field(
+        status_text, "Adoption Baseline ID", adoption["baseline_id"]
+    ):
+        raise guard.Conflict(
+            "STATUS.md must record the exact management mode and Adoption baseline ID"
+        )
+    status_enums = {
+        "Build": {"PASS", "FAIL", "NOT_RUN", "UNKNOWN"},
+        "Test": {"PASS", "FAIL", "NOT_RUN", "UNKNOWN"},
+        "Release": {"SHIPPED", "NOT_SHIPPED", "UNKNOWN"},
+    }
+    for label, values in status_enums.items():
+        if not any(_has_exact_ledger_field(status_text, label, value) for value in values):
+            raise guard.Conflict(
+                f"STATUS.md must record an exact {label} baseline state"
+            )
+    for label in (
+        "Maturity",
+        "Known Risks",
+        "Current Issues",
+        "Current Active Work",
+        "Next Action",
+    ):
+        match = re.search(
+            rf"(?im)^\s*(?:[-*]\s*)?{re.escape(label)}\s*:\s*(\S.*)\s*$",
+            status_text,
+        )
+        if match is None or match.group(1).strip(" `") in {"", "..."}:
+            raise guard.Conflict(f"STATUS.md must record a non-placeholder {label}")
+    roadmap_headings = ("Completed / Observed", "Current", "Candidate Next Steps")
+    if not all(
+        re.search(rf"(?im)^#+\s+{re.escape(heading)}\s*$", roadmap_text)
+        for heading in roadmap_headings
+    ):
+        raise guard.Conflict(
+            "ROADMAP.md must separate Completed / Observed, Current, and Candidate Next Steps"
+        )
+    if not re.search(r"(?im)^\s*(?:[-*]\s*)?Historical Agents\s*:\s*\S.*$", agents_text):
+        raise guard.Conflict("AGENTS.md must state the evidence-bounded Historical Agents status")
+    recovery_rows = re.findall(
+        r"(?im)^\s*(?:[-*]\s*)?Recovery Classification\s*:\s*`?"
+        r"(NONE_CONFIRMED|RECOVERED_CONFIRMED|RECOVERED_INFERRED)`?\s*$",
+        decisions_text,
+    )
+    if not recovery_rows:
+        raise guard.Conflict(
+            "DECISIONS.md must explicitly record recovered history or NONE_CONFIRMED"
+        )
+    if any(value != "NONE_CONFIRMED" for value in recovery_rows):
+        rationale = re.search(
+            r"(?im)^\s*(?:[-*]\s*)?Original Rationale\s*:\s*(\S.*)\s*$",
+            decisions_text,
+        )
+        if rationale is None or rationale.group(1).strip(" `") in {"", "..."}:
+            raise guard.Conflict(
+                "Recovered decisions require an explicit rationale evidence value or UNKNOWN_RATIONALE"
+            )
+
+
+def confirm_adoption(
+    project: str,
+    *,
+    owner: str,
+    activation_token: str,
+    expected_state_sha: str,
+    expected_strategy_sha: str,
+    evidence: str,
+) -> dict[str, Any]:
+    """Confirm five current-reality ledgers and enter normal OPERATING mode."""
+
+    evidence = _text(evidence, "Adoption canonical evidence")
+
+    def mutate(state: dict[str, Any] | None, founder: Path):
+        if state is None:
+            raise guard.Conflict("Adoption Strategy state is not initialized")
+        if (
+            state.get("project_phase") != "pre-adoption"
+            or state.get("adoption_status") != "BASELINE_READY"
+            or state.get("gate", {}).get("state") != "ADOPTION_STATE_REQUIRED"
+        ):
+            raise guard.Conflict("The current Strategy is not awaiting Adoption confirmation")
+        _validate_adoption_ledgers(founder, state)
+        observed_id, observed_sha = _observe_adoption_baseline(founder.parent)
+        adoption = state["adoption"]
+        if (observed_id, observed_sha) != (
+            adoption["baseline_id"],
+            adoption["baseline_sha256"],
+        ):
+            raise guard.Conflict(
+                "ADOPTION_BASELINE_DRIFT: source/config/Git evidence changed before confirmation"
+            )
+        now = guard.utc_now()
+        state["project_phase"] = "bootstrapped"
+        state["adoption_status"] = "ADOPTED"
+        adoption["adopted_at"] = now
+        state["gate"].update(
+            {
+                "state": "OPERATING",
+                "context": "none",
+                "decision_level": None,
+                "proposal_id": None,
+                "reason": "Existing project baseline and current-reality ledgers are canonical",
+                "authorization_ref": evidence,
+                "resolved_at": now,
+            }
+        )
+        return state, {
+            "project_origin": state["project_origin"],
+            "project_lifecycle": state["project_lifecycle"],
+            "adoption_status": state["adoption_status"],
+            "management_mode": adoption["management_mode"],
+            "baseline_id": adoption["baseline_id"],
+            "gate": state["gate"]["state"],
+        }
+
+    return _mutate_strategy(
+        project,
+        owner=owner,
+        activation_token=activation_token,
+        expected_state_sha=expected_state_sha,
+        expected_strategy_sha=expected_strategy_sha,
+        operation="ADOPTION_CONFIRMED",
+        mutate=mutate,
+    )
+
+
 def _verified_thread_sync(founder: Path, agent_id: str) -> tuple[str, str]:
     """Return (thread_record_id, acknowledgement) for a current primary sync."""
     # Local import avoids a module-load cycle when Thread Registry imports this
@@ -2564,7 +3108,100 @@ def _strategy_snapshot(project: str) -> tuple[Path, Path, dict[str, Any] | None]
 
 
 def _scope_is_read_only(strategy_scope: str | None, task_write_scope: list[str]) -> bool:
-    return strategy_scope in {"discovery-read-only", "unrelated-read-only"} and not task_write_scope
+    return strategy_scope in {
+        "discovery-read-only",
+        "adoption-read-only",
+        "unrelated-read-only",
+    } and not task_write_scope
+
+
+def _preflight_unclaimed_adoption(
+    project: str,
+    *,
+    action: str,
+    strategy_scope: str | None,
+    thread_type: str | None,
+    agent_kind: str | None,
+    task_write_scope: list[str],
+) -> dict[str, Any] | None:
+    """Authorize only evidence-backed, unclaimed, zero-write Adoption reading."""
+
+    adoption_request = action == "adoption-read-only" or (
+        action == "subagent-dispatch" and strategy_scope == "adoption-read-only"
+    )
+    if not adoption_request:
+        return None
+    import project_baseline as baseline_api
+
+    report = baseline_api.inspect_project(project)
+    completeness = report.get("completeness", {})
+    baseline_result = report.get("result")
+    observation_available = baseline_result in {"COMPLETE", "PARTIAL"}
+    baseline_anchor_usable = completeness.get(
+        "baseline_anchor_usable", completeness.get("baseline_usable")
+    ) is True
+    audit_coverage_complete = completeness.get(
+        "audit_coverage_complete", baseline_result == "COMPLETE"
+    ) is True
+    founder_state = report.get("founder_state", {}).get("classification")
+    if founder_state == "PRE_ADOPTION_CONTROL":
+        return None
+    no_write = not task_write_scope
+    bounded_task = action == "adoption-read-only" or (
+        action == "subagent-dispatch"
+        and thread_type in {"task", "review", "fork-readonly"}
+        and agent_kind == "task"
+    )
+    existing_evidence = bool(
+        report.get("entry_signals", {}).get("evident_existing")
+    )
+    allowed = (
+        founder_state == "ABSENT"
+        and existing_evidence
+        and observation_available
+        and no_write
+        and bounded_task
+    )
+    if founder_state != "ABSENT":
+        reason = (
+            "Existing .founder state requires resume, legacy migration, or Recovery; "
+            "Brownfield Adoption may not overwrite it"
+        )
+    elif not observation_available:
+        reason = "Existing-project evidence could not be observed safely; Adoption remains blocked"
+    elif not existing_evidence:
+        reason = "No existing-project evidence was observed; classify NEW_PROJECT before Bootstrap"
+    elif not no_write or not bounded_task:
+        reason = "ADOPTION_READ_ONLY permits only bounded task/subagent work with an empty write scope"
+    elif not baseline_anchor_usable:
+        reason = (
+            "Bounded Existing Project audit is authorized, but formal Adoption remains blocked "
+            "until a deterministic baseline anchor is available"
+        )
+    elif not audit_coverage_complete:
+        reason = (
+            "Bounded Existing Project audit is authorized with declared coverage limitations; "
+            "the deterministic baseline anchor remains eligible for formal Adoption"
+        )
+    else:
+        reason = "Evidence-backed Existing Project audit is authorized with zero project write scope"
+    return {
+        "result": "ACTION_AUTHORIZED" if allowed else "ACTION_BLOCKED",
+        "allowed": allowed,
+        "legacy": False,
+        "reason": reason,
+        "gate": "ADOPTION_READ_ONLY",
+        "project_phase": "unpersisted-read-only-audit",
+        "founder_state": founder_state,
+        "baseline_id": report.get("baseline_id"),
+        "baseline_sha256": report.get("baseline_sha256"),
+        "baseline_result": baseline_result,
+        "baseline_anchor_usable": baseline_anchor_usable,
+        "audit_coverage_complete": audit_coverage_complete,
+        "audit_limitations": completeness.get("reasons", []),
+        "formal_adoption_allowed": bool(allowed and baseline_anchor_usable),
+        "changed_paths": [],
+    }
 
 
 def authorize_action(
@@ -2589,11 +3226,24 @@ def authorize_action(
         raise guard.InvalidState("task_write_scope must be a list")
     for item in task_write_scope:
         _text(item, "task_write_scope item", max_length=256)
+    adoption_preflight = _preflight_unclaimed_adoption(
+        project,
+        action=action,
+        strategy_scope=strategy_scope,
+        thread_type=thread_type,
+        agent_kind=agent_kind,
+        task_write_scope=task_write_scope,
+    )
+    if adoption_preflight is not None:
+        return adoption_preflight
     _root, _founder, state = _strategy_snapshot(project)
     if state is None:
         presence = {name: (_founder / name).exists() for name in CORE_LEDGERS}
         count = sum(presence.values())
-        safe_read = action == "unrelated-read-only" and not task_write_scope
+        safe_read = (
+            action in {"unrelated-read-only", "adoption-read-only"}
+            or (action == "subagent-dispatch" and strategy_scope == "adoption-read-only")
+        ) and not task_write_scope
         if count == 0:
             reason = (
                 "Safe read-only work is allowed before Strategy initialization"
@@ -2631,12 +3281,23 @@ def authorize_action(
         allowed = gate in {"STATE_SYNC_REQUIRED", "OPERATING"}
     elif action == "discovery-read-only":
         allowed = gate in {"DISCOVERY_ACTIVE", "STRATEGIC_CHOICE_REQUIRED"} and not task_write_scope
+    elif action == "adoption-read-only":
+        allowed = gate == "ADOPTION_STATE_REQUIRED" and not task_write_scope
     elif action == "unrelated-read-only":
         allowed = not task_write_scope
     elif action == "subagent-dispatch":
         allowed = gate == "OPERATING" or (
             gate in {"DISCOVERY_ACTIVE", "STRATEGIC_CHOICE_REQUIRED"}
-            and _scope_is_read_only(strategy_scope, task_write_scope)
+            and strategy_scope in {"discovery-read-only", "unrelated-read-only"}
+            and not task_write_scope
+            and thread_type in {"task", "review", "fork-readonly"}
+            and agent_kind == "task"
+        ) or (
+            gate == "ADOPTION_STATE_REQUIRED"
+            and strategy_scope == "adoption-read-only"
+            and not task_write_scope
+            and thread_type in {"task", "review", "fork-readonly"}
+            and agent_kind == "task"
         )
     elif action == "executive-action":
         decision = state["decision_record"]
@@ -2715,7 +3376,7 @@ def enforce_thread_action(
             return
         if (
             operation != "registry-init"
-            and strategy_scope == "unrelated-read-only"
+            and strategy_scope in {"adoption-read-only", "unrelated-read-only"}
             and not effective_write_scope
             and thread_type in {"task", "review", "fork-readonly"}
             and agent_kind == "task"
@@ -2731,7 +3392,11 @@ def enforce_thread_action(
     _assert_control_plane_current(founder, state)
     gate = state["gate"]["state"]
     if operation == "registry-init":
-        if gate in {"DISCOVERY_ACTIVE", "STRATEGIC_CHOICE_REQUIRED", "OPERATING"}:
+        if gate in {
+            "DISCOVERY_ACTIVE",
+            "STRATEGIC_CHOICE_REQUIRED",
+            "OPERATING",
+        }:
             return
         raise guard.Conflict(
             f"Thread Registry initialization is blocked by Strategic Gate {gate}"
@@ -2742,48 +3407,125 @@ def enforce_thread_action(
         return
     if agent_kind == "persistent" or thread_type == "persistent":
         raise guard.Conflict(f"Persistent Thread operation is blocked by Strategic Gate {gate}")
+    allowed_gate_scopes = (
+        {"discovery-read-only", "unrelated-read-only"}
+        if gate in {"DISCOVERY_ACTIVE", "STRATEGIC_CHOICE_REQUIRED"}
+        else {"adoption-read-only"}
+        if gate == "ADOPTION_STATE_REQUIRED"
+        else set()
+    )
     if (
-        gate in {"DISCOVERY_ACTIVE", "STRATEGIC_CHOICE_REQUIRED"}
-        and strategy_scope in {"discovery-read-only", "unrelated-read-only"}
+        strategy_scope in allowed_gate_scopes
         and not effective_write_scope
         and thread_type in {"task", "review", "fork-readonly"}
         and agent_kind == "task"
     ):
-        return
-    if strategy_scope == "unrelated-read-only" and not effective_write_scope and agent_kind == "task":
         return
     raise guard.Conflict(
         f"Thread {operation} is blocked by Strategic Gate {gate}; only explicit safe read-only scope may proceed"
     )
 
 
-def validate_state_sync_ack(founder: Path, *, agent_id: str, acknowledgement: str) -> None:
-    """Bind strategic STATE_SYNC to the exact pending Agent and context."""
+STATE_SYNC_ACK_KEYS = frozenset(
+    {
+        "THREAD_RECORD_ID",
+        "BINDING_GENERATION",
+        "RUNTIME_THREAD_ID",
+        "RUNTIME_HOST_ID",
+        "AGENT_ID",
+        "STRATEGY_CONTEXT_REVISION",
+        "STRATEGY_CONTEXT_SHA256",
+        "CONTEXT_BASELINE_SHA256",
+    }
+)
+
+
+def _parse_exact_state_sync_ack(acknowledgement: str) -> dict[str, str]:
+    """Parse one exact, contradiction-free STATE_SYNC machine acknowledgement."""
+
+    acknowledgement = _text(
+        acknowledgement, "STATE_SYNC acknowledgement", max_length=4096
+    )
+    prefix = "STATE_SYNC "
+    if not acknowledgement.startswith(prefix):
+        raise guard.Conflict(
+            "STATE_SYNC acknowledgement must start with the exact STATE_SYNC protocol prefix"
+        )
+    payload = acknowledgement[len(prefix) :]
+    if not payload or payload != payload.strip():
+        raise guard.Conflict("STATE_SYNC acknowledgement framing is malformed")
+    tokens = payload.split(" ")
+    if any(
+        not token or "\t" in token or "\r" in token or "\n" in token
+        for token in tokens
+    ):
+        raise guard.Conflict("STATE_SYNC acknowledgement tokens are malformed")
+    observed: dict[str, str] = {}
+    for token in tokens:
+        if token.count("=") != 1:
+            raise guard.Conflict("STATE_SYNC acknowledgement marker is malformed")
+        key, value = token.split("=", 1)
+        if not key or not value or key in observed:
+            raise guard.Conflict(
+                "STATE_SYNC acknowledgement contains an empty or duplicate marker"
+            )
+        observed[key] = value
+    if set(observed) != STATE_SYNC_ACK_KEYS or len(tokens) != len(STATE_SYNC_ACK_KEYS):
+        raise guard.Conflict(
+            "STATE_SYNC acknowledgement must contain only the exact Thread, runtime, Agent, Strategy, and context markers"
+        )
+    return observed
+
+
+def validate_state_sync_ack(
+    founder: Path,
+    *,
+    agent_id: str,
+    acknowledgement: str,
+    expected_markers: dict[str, str],
+) -> None:
+    """Bind STATE_SYNC to the exact live Thread identity and canonical context."""
+
     agent_id = _agent_id(agent_id)
-    acknowledgement = _text(acknowledgement, "STATE_SYNC acknowledgement", max_length=1000)
+    if (
+        not isinstance(expected_markers, dict)
+        or set(expected_markers) != STATE_SYNC_ACK_KEYS
+        or any(
+            not isinstance(value, str) or not value or any(character.isspace() for character in value)
+            for value in expected_markers.values()
+        )
+    ):
+        raise guard.InvalidState("STATE_SYNC expected marker set is malformed")
+    if expected_markers["AGENT_ID"] != agent_id:
+        raise guard.InvalidState("STATE_SYNC expected Agent marker is inconsistent")
+    observed = _parse_exact_state_sync_ack(acknowledgement)
+    if observed != expected_markers:
+        raise guard.Conflict(
+            "STATE_SYNC acknowledgement must bind the exact Thread, generation, runtime, Agent, Strategy, and context baseline"
+        )
     _sha, _raw, state = _read_strategy(founder / STRATEGY_NAME)
     if state is None:
-        return
+        raise guard.Conflict(
+            "LEGACY_MIGRATION_REQUIRED: STATE_SYNC requires initialized Strategy context"
+        )
     validate_strategy(state, founder.parent)
     _assert_control_plane_current(founder, state)
     gate = state["gate"]["state"]
-    if gate == "OPERATING":
-        return
-    if gate != "STATE_SYNC_REQUIRED":
+    if gate not in {"OPERATING", "STATE_SYNC_REQUIRED"}:
         raise guard.Conflict(f"STATE_SYNC cannot clear Thread context while Strategic Gate is {gate}")
-    pending = next(
-        (row for row in state["pending_state_sync"] if row["agent_id"] == agent_id),
-        None,
-    )
-    if pending is None:
-        raise guard.Conflict("Thread Agent is not part of the current strategic STATE_SYNC set")
-    required_markers = (
-        f"STRATEGY_CONTEXT_REVISION={state['context_revision']}",
-        f"STRATEGY_CONTEXT_SHA256={state['context_sha256']}",
-    )
-    if not all(marker in acknowledgement for marker in required_markers):
+    if gate == "STATE_SYNC_REQUIRED":
+        pending = next(
+            (row for row in state["pending_state_sync"] if row["agent_id"] == agent_id),
+            None,
+        )
+        if pending is None:
+            raise guard.Conflict("Thread Agent is not part of the current strategic STATE_SYNC set")
+    if (
+        expected_markers["STRATEGY_CONTEXT_REVISION"] != state["context_revision"]
+        or expected_markers["STRATEGY_CONTEXT_SHA256"] != state["context_sha256"]
+    ):
         raise guard.Conflict(
-            "Strategic STATE_SYNC acknowledgement must name the exact Strategy context revision and SHA-256"
+            "STATE_SYNC expected markers do not name the current Strategy context"
         )
 
 
@@ -2828,6 +3570,26 @@ def build_parser() -> argparse.ArgumentParser:
     init_parser.add_argument("--mode", choices=("new", "legacy"), required=True)
     init_parser.add_argument("--legacy-summary")
     init_parser.add_argument("--evidence", required=True)
+
+    adoption_init_parser = subparsers.add_parser("init-adoption")
+    _add_mutation_args(adoption_init_parser)
+    adoption_init_parser.add_argument(
+        "--detected-mode", choices=sorted(ADOPTION_DETECTED_MODES), required=True
+    )
+    adoption_init_parser.add_argument(
+        "--project-lifecycle", choices=sorted(PROJECT_LIFECYCLES), required=True
+    )
+    adoption_init_parser.add_argument(
+        "--adoption-confidence", choices=sorted(ADOPTION_CONFIDENCES), required=True
+    )
+    adoption_init_parser.add_argument("--baseline-id", required=True)
+    adoption_init_parser.add_argument("--baseline-sha256", required=True)
+    adoption_init_parser.add_argument("--direction-summary", required=True)
+    adoption_init_parser.add_argument(
+        "--management-mode", choices=sorted(ADOPTION_MANAGEMENT_MODES), required=True
+    )
+    adoption_init_parser.add_argument("--evidence-ref", action="append", required=True)
+    adoption_init_parser.add_argument("--adoption-review-ref")
 
     assess_parser = subparsers.add_parser("assess")
     _add_mutation_args(assess_parser)
@@ -2921,6 +3683,10 @@ def build_parser() -> argparse.ArgumentParser:
     _add_mutation_args(canonical_parser)
     canonical_parser.add_argument("--evidence", required=True)
 
+    adoption_confirm_parser = subparsers.add_parser("confirm-adoption")
+    _add_mutation_args(adoption_confirm_parser)
+    adoption_confirm_parser.add_argument("--evidence", required=True)
+
     sync_parser = subparsers.add_parser("complete-state-sync")
     _add_mutation_args(sync_parser)
 
@@ -2986,6 +3752,19 @@ def main(argv: list[str] | None = None) -> int:
                     mode=args.mode,
                     legacy_summary=args.legacy_summary,
                     evidence=args.evidence,
+                )
+            elif args.command == "init-adoption":
+                payload = initialize_adoption(
+                    **common,
+                    detected_mode=args.detected_mode,
+                    project_lifecycle=args.project_lifecycle,
+                    adoption_confidence=args.adoption_confidence,
+                    baseline_id=args.baseline_id,
+                    baseline_sha256=args.baseline_sha256,
+                    direction_summary=args.direction_summary,
+                    management_mode=args.management_mode,
+                    evidence_refs=args.evidence_ref,
+                    adoption_review_ref=args.adoption_review_ref,
                 )
             elif args.command == "recover-lock":
                 payload = recover_strategy_lock(
@@ -3088,6 +3867,8 @@ def main(argv: list[str] | None = None) -> int:
                 )
             elif args.command == "confirm-canonical":
                 payload = confirm_canonical(**common, evidence=args.evidence)
+            elif args.command == "confirm-adoption":
+                payload = confirm_adoption(**common, evidence=args.evidence)
             elif args.command == "reject-executive":
                 payload = reject_executive(
                     **common,
