@@ -1,4 +1,4 @@
 interface:
   display_name: "FounderOS"
-  short_description: "用 Founder Discovery 与战略门禁管理项目、AI 员工和持续执行"
-  default_prompt: "使用 $founder-os，确认项目根目录和唯一 ACTIVE Supervisor，先恢复或判断 Direction、Autonomy Profile 与 Strategic Gate；方向清楚才 Bootstrap，模糊时做有界 Discovery 并给明确推荐，方向选定后复用员工 Thread、按需委派真实 Agent、验收集成并持续推进。"
+  short_description: "安全启动或接管项目，并用 AI 员工持续推进与长期维护"
+  default_prompt: "使用 $founder-os，先判断这是新项目、既有项目、有效 FounderOS 项目还是恢复场景；新项目走 Founder Discovery，既有项目先按 Preserve-before-improve 做只读 Adoption 与基线，随后恢复唯一 ACTIVE Supervisor 和 Strategic Gate，复用可信 Agent、Thread 与 Skill，验收、同步并持续推进。"

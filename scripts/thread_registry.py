@@ -28,6 +28,7 @@ sys.dont_write_bytecode = True
 
 import supervisor_guard as guard
 import decision_state as strategy
+import skill_registry as skills_api
 
 
 REGISTRY_NAME = "THREADS.json"
@@ -88,6 +89,12 @@ THREAD_TYPES = {"persistent", "review", "task", "fork-readonly"}
 AGENT_KINDS = {"persistent", "task"}
 BINDING_ROLES = {"primary", "candidate", "predecessor", "auxiliary", "historical"}
 IDENTITY_QUALITIES = {"stable", "observed", "ephemeral", "unavailable"}
+SKILL_SYNC_STATES = {
+    "CURRENT",
+    "REQUIRED",
+    "LEGACY_MIGRATION_REQUIRED",
+    "BLOCKED",
+}
 LEGACY_BUSINESS_CONTEXT_KEYS = (
     "PROJECT",
     "PROJECT_SHA256",
@@ -193,6 +200,37 @@ def _validate_scope(values: Any, label: str) -> list[str]:
     return normalized
 
 
+def _scope_is_provable_subset(requested: list[str], ceiling: list[str]) -> bool:
+    """Return whether every requested glob is provably inside a Thread ceiling.
+
+    Scope syntax is intentionally conservative.  Equality is always safe.  A
+    ceiling ending in ``/**`` proves containment for the same base and any
+    descendant pattern.  Other wildcard relationships are rejected unless
+    exactly equal because their language inclusion is ambiguous without a
+    single canonical glob engine.
+    """
+
+    for child in requested:
+        child_key = child.casefold().rstrip("/")
+        allowed = False
+        for parent in ceiling:
+            parent_key = parent.casefold().rstrip("/")
+            if child_key == parent_key:
+                allowed = True
+                break
+            if parent_key == "**":
+                allowed = True
+                break
+            if parent_key.endswith("/**"):
+                base = parent_key[:-3].rstrip("/")
+                if base and (child_key == base or child_key.startswith(base + "/")):
+                    allowed = True
+                    break
+        if not allowed:
+            return False
+    return True
+
+
 def _validate_dependencies(values: Any) -> list[str]:
     if not isinstance(values, list):
         raise guard.InvalidState("dependencies must be a list")
@@ -294,12 +332,37 @@ def _skill_rows(founder: Path) -> dict[str, str]:
     return rows
 
 
-def _resolve_skills(founder: Path, requested: list[str]) -> list[dict[str, str]]:
+def _resolve_skills(
+    founder: Path,
+    requested: list[str],
+    *,
+    agent_id: str | None = None,
+    workstream: str | None = None,
+    thread_record_id: str | None = None,
+    task_id: str | None = None,
+) -> list[dict[str, str]]:
     names = [_identifier(item, "skill", max_length=128) for item in requested]
     if len(names) != len(set(name.casefold() for name in names)):
         raise guard.InvalidState("skills contains duplicates")
     if not names:
         return []
+    if (founder / skills_api.LOCK_NAME).exists():
+        _baseline, bound, _binding_sha = skills_api.resolve_bindings(
+            founder,
+            names,
+            agent_id=agent_id,
+            workstream=workstream,
+            thread_record_id=thread_record_id,
+            task_id=task_id,
+        )
+        return [
+            {
+                "name": item["skill_id"],
+                "trust_state": item["trust_level"],
+                "evidence_ref": ".founder/SKILL_LOCK.json",
+            }
+            for item in bound
+        ]
     rows = _skill_rows(founder)
     if not rows:
         raise guard.Conflict("SKILL_REGISTRY_UNAVAILABLE: cannot bind requested Skills")
@@ -330,6 +393,102 @@ def _validate_skill_bindings(value: Any) -> None:
         _text(binding.get("evidence_ref"), "skill evidence_ref", max_length=256)
 
 
+def _validate_bound_skills(value: Any) -> None:
+    if not isinstance(value, list):
+        raise guard.InvalidState("bound_skills must be a list")
+    seen: set[str] = set()
+    required = {
+        "skill_id",
+        "approved_version",
+        "commit_sha",
+        "content_hash",
+        "installed_hash",
+        "audit_revision",
+        "entry_revision",
+        "trust_level",
+        "risk_level",
+        "status",
+        "role",
+        "capabilities",
+        "binding_sha256",
+    }
+    for item in value:
+        if not isinstance(item, dict) or set(item) != required:
+            raise guard.InvalidState("bound skill exact fields are malformed")
+        skill_id = _identifier(item.get("skill_id"), "bound skill_id")
+        if skill_id.casefold() in seen:
+            raise guard.InvalidState("bound_skills contains duplicates")
+        seen.add(skill_id.casefold())
+        _text(item.get("approved_version"), "bound approved_version")
+        commit = item.get("commit_sha")
+        if commit is not None and not re.fullmatch(r"[0-9a-f]{40}", commit):
+            raise guard.InvalidState("bound commit_sha must be null or exact 40-hex")
+        for key in ("content_hash", "installed_hash", "binding_sha256"):
+            value_sha = _text(item.get(key), f"bound {key}").upper()
+            if not re.fullmatch(r"[0-9A-F]{64}", value_sha):
+                raise guard.InvalidState(f"bound {key} is malformed")
+        _identifier(item.get("audit_revision"), "bound audit_revision")
+        _identifier(item.get("entry_revision"), "bound entry_revision")
+        if item.get("trust_level") not in TRUSTED_SKILL_STATES:
+            raise guard.InvalidState("bound Skill is not trusted")
+        if item.get("risk_level") not in skills_api.RISK_LEVELS:
+            raise guard.InvalidState("bound Skill risk is invalid")
+        if item.get("status") not in skills_api.BINDABLE_STATUSES:
+            raise guard.InvalidState("bound Skill status is not bindable")
+        if item.get("role") not in skills_api.SKILL_ROLES:
+            raise guard.InvalidState("bound Skill role is invalid")
+        _validate_dependencies(item.get("capabilities"))
+
+
+def _validate_optional_skill_state(thread: dict[str, Any]) -> None:
+    fields = {
+        "capability_baseline",
+        "skill_registry_revision",
+        "skill_lock_revision",
+        "skill_lock_sha256",
+        "bound_skills",
+        "bound_skills_sha256",
+        "skill_sync_state",
+        "last_skill_sync",
+        "replacement_needed",
+    }
+    present = fields.intersection(thread)
+    if not present:
+        return
+    if present != fields:
+        raise guard.InvalidState("Thread machine Skill baseline is incomplete")
+    _validate_dependencies(thread.get("capability_baseline"))
+    _identifier(thread.get("skill_registry_revision"), "skill_registry_revision")
+    _identifier(thread.get("skill_lock_revision"), "skill_lock_revision")
+    for key in ("skill_lock_sha256", "bound_skills_sha256"):
+        value = _text(thread.get(key), key).upper()
+        if not re.fullmatch(r"[0-9A-F]{64}", value):
+            raise guard.InvalidState(f"Thread {key} is malformed")
+    _validate_bound_skills(thread.get("bound_skills"))
+    if thread.get("skill_sync_state") not in SKILL_SYNC_STATES:
+        raise guard.InvalidState("Thread skill_sync_state is invalid")
+    _validate_dependencies(thread.get("replacement_needed"))
+    sync = thread.get("last_skill_sync")
+    if sync is not None:
+        if not isinstance(sync, dict) or set(sync) != {
+            "at",
+            "acknowledgement",
+            "diff",
+            "diff_sha256",
+            "task_id",
+        }:
+            raise guard.InvalidState("Thread last_skill_sync is malformed")
+        _text(sync.get("at"), "Skill Sync at")
+        _text(sync.get("acknowledgement"), "Skill Sync acknowledgement", max_length=4096)
+        if not isinstance(sync.get("diff"), dict):
+            raise guard.InvalidState("Skill Sync diff must be an object")
+        diff_sha = _text(sync.get("diff_sha256"), "Skill Sync diff SHA").upper()
+        if not re.fullmatch(r"[0-9A-F]{64}", diff_sha):
+            raise guard.InvalidState("Skill Sync diff SHA is malformed")
+        if sync.get("task_id") is not None:
+            _identifier(sync.get("task_id"), "Skill Sync task_id")
+
+
 def _find_thread(registry: dict[str, Any], thread_record_id: str) -> dict[str, Any]:
     thread_record_id = _identifier(thread_record_id, "thread_record_id")
     for thread in registry["threads"]:
@@ -344,6 +503,327 @@ def _find_binding(registry: dict[str, Any], agent_id: str) -> dict[str, Any]:
         return registry["agent_bindings"][agent_id]
     except KeyError as exc:
         raise guard.Conflict(f"Unknown agent_id: {agent_id}") from exc
+
+
+def _scope_allows_thread(
+    entry: dict[str, Any],
+    thread: dict[str, Any],
+    *,
+    task_id: str | None,
+) -> tuple[bool, bool]:
+    """Return (allowed, explicit_bind_intent) from recorded scope facts.
+
+    Every populated scope list is an authorization ceiling.  Only an exact
+    Thread-record or task match is positive intent to add a previously unbound
+    Skill; matching an Agent or Workstream ceiling alone never expands an
+    existing Thread's Skill set.
+    """
+
+    scope = entry["scoped_bindings"]
+    values = {
+        "agent_ids": thread["agent_id"],
+        "workstreams": thread["workstream"],
+        "thread_record_ids": thread["thread_record_id"],
+        "task_ids": task_id,
+    }
+    targeted = False
+    for key, actual in values.items():
+        allowed = scope[key]
+        if not allowed:
+            continue
+        if actual is None or actual not in allowed:
+            return False, targeted
+        if key in {"thread_record_ids", "task_ids"}:
+            targeted = True
+    return True, targeted
+
+
+def _skill_diff(
+    old_bound: list[dict[str, Any]],
+    desired_bound: list[dict[str, Any]],
+    lock_skills: dict[str, dict[str, Any]],
+) -> dict[str, list[str]]:
+    old = {item["skill_id"]: item for item in old_bound}
+    new = {item["skill_id"]: item for item in desired_bound}
+    result: dict[str, list[str]] = {
+        "ADDED": [],
+        "REMOVED": [],
+        "UPDATED": [],
+        "REVOKED": [],
+        "POLICY_CHANGED": [],
+    }
+    version_fields = {
+        "approved_version",
+        "commit_sha",
+        "content_hash",
+        "installed_hash",
+        "audit_revision",
+        "entry_revision",
+    }
+    for skill_id in sorted(set(old) | set(new), key=str.casefold):
+        if skill_id not in old:
+            result["ADDED"].append(skill_id)
+            continue
+        if skill_id not in new:
+            entry = lock_skills.get(skill_id)
+            if entry is not None and entry.get("status") in skills_api.FAIL_CLOSED_STATUSES:
+                result["REVOKED"].append(skill_id)
+            else:
+                result["REMOVED"].append(skill_id)
+            continue
+        if old[skill_id] == new[skill_id]:
+            continue
+        if any(old[skill_id].get(key) != new[skill_id].get(key) for key in version_fields):
+            result["UPDATED"].append(skill_id)
+        else:
+            result["POLICY_CHANGED"].append(skill_id)
+    return result
+
+
+def _diff_sha(diff: dict[str, list[str]]) -> str:
+    return guard.sha256_bytes(guard.canonical_json_bytes(diff))
+
+
+def _require_exact_skill_sync_ack(
+    acknowledgement: str, expected: dict[str, str]
+) -> None:
+    """Accept only one exact, contradiction-free SKILL_SYNC marker set.
+
+    This is deliberately a small machine protocol rather than a substring
+    search through free-form prose.  Prefix/suffix tricks, duplicate keys,
+    unknown keys, missing keys, and contradictory values all fail closed.
+    """
+
+    prefix = "SKILL_SYNC "
+    if not acknowledgement.startswith(prefix):
+        raise guard.Conflict(
+            "SKILL_SYNC acknowledgement must start with the exact SKILL_SYNC protocol prefix"
+        )
+    payload = acknowledgement[len(prefix) :]
+    if not payload or payload != payload.strip():
+        raise guard.Conflict("SKILL_SYNC acknowledgement framing is malformed")
+    tokens = payload.split(" ")
+    if any(not token or "\t" in token or "\r" in token or "\n" in token for token in tokens):
+        raise guard.Conflict("SKILL_SYNC acknowledgement tokens are malformed")
+    observed: dict[str, str] = {}
+    for token in tokens:
+        if token.count("=") != 1:
+            raise guard.Conflict("SKILL_SYNC acknowledgement marker is malformed")
+        key, value = token.split("=", 1)
+        if not key or not value or key in observed:
+            raise guard.Conflict(
+                "SKILL_SYNC acknowledgement contains an empty or duplicate marker"
+            )
+        observed[key] = value
+    if observed != expected or len(tokens) != len(expected):
+        raise guard.Conflict(
+            "SKILL_SYNC acknowledgement must bind the exact Thread, Registry, Lock, bound Skills, and diff hashes"
+        )
+
+
+def _state_sync_ack_markers(
+    thread: dict[str, Any], current_context: dict[str, str | None]
+) -> dict[str, str]:
+    """Build the exact machine markers for one live Thread STATE_SYNC."""
+
+    runtime = thread.get("runtime")
+    if not isinstance(runtime, dict):
+        raise guard.InvalidState("Thread runtime binding is malformed")
+    runtime_thread_id = runtime.get("thread_id")
+    runtime_host_id = runtime.get("host_id")
+    if runtime_thread_id is None or runtime_host_id is None:
+        raise guard.Conflict("STATE_SYNC requires one exact bound runtime Thread")
+    context_revision = current_context.get("STRATEGY_CONTEXT_REVISION")
+    context_sha = current_context.get("STRATEGY_CONTEXT_SHA256")
+    if context_revision is None or context_sha is None:
+        raise guard.Conflict(
+            "LEGACY_MIGRATION_REQUIRED: STATE_SYNC requires initialized Strategy context"
+        )
+    return {
+        "THREAD_RECORD_ID": _identifier(
+            thread.get("thread_record_id"), "STATE_SYNC thread_record_id"
+        ),
+        "BINDING_GENERATION": str(thread.get("generation")),
+        "RUNTIME_THREAD_ID": _runtime_id(
+            runtime_thread_id, "STATE_SYNC runtime_thread_id"
+        ),
+        "RUNTIME_HOST_ID": _runtime_id(
+            runtime_host_id, "STATE_SYNC runtime_host_id"
+        ),
+        "AGENT_ID": _agent_id(thread.get("agent_id")),
+        "STRATEGY_CONTEXT_REVISION": _identifier(
+            context_revision, "STATE_SYNC Strategy context revision"
+        ),
+        "STRATEGY_CONTEXT_SHA256": _sha_or_absent(
+            context_sha, "STATE_SYNC Strategy context SHA-256"
+        ),
+        "CONTEXT_BASELINE_SHA256": guard.sha256_bytes(
+            guard.canonical_json_bytes(current_context)
+        ),
+    }
+
+
+def skill_sync_plan(
+    founder: Path,
+    thread: dict[str, Any],
+    *,
+    task_id: str | None = None,
+    _allow_unbound_prebind: bool = False,
+) -> dict[str, Any]:
+    """Derive a deterministic per-Thread Skill baseline and exact ACK markers."""
+
+    has_machine_baseline = "bound_skills" in thread
+    old_bound = copy.deepcopy(thread.get("bound_skills", []))
+    old_requested = [item["skill_id"] for item in old_bound]
+    runtime = thread.get("runtime")
+    runtime_thread_id = runtime.get("thread_id") if isinstance(runtime, dict) else None
+    runtime_host_id = runtime.get("host_id") if isinstance(runtime, dict) else None
+    if (
+        not _allow_unbound_prebind
+        and (not runtime_thread_id or not runtime_host_id)
+    ):
+        return {
+            "state": "BLOCKED",
+            "reason": "UNBOUND_RUNTIME",
+            "diff": {
+                key: []
+                for key in (
+                    "ADDED",
+                    "REMOVED",
+                    "UPDATED",
+                    "REVOKED",
+                    "POLICY_CHANGED",
+                )
+            },
+        }
+    transaction = skills_api._transaction_observation(founder)
+    if transaction["state"] != "none":
+        return {
+            "state": "BLOCKED",
+            "reason": "SKILL_REGISTRY_RECOVERY_REQUIRED",
+            "diff": {key: [] for key in ("ADDED", "REMOVED", "UPDATED", "REVOKED", "POLICY_CHANGED")},
+        }
+    try:
+        lock_sha, _raw, lock, _registry_raw = skills_api.read_registry_pair(founder)
+    except guard.GuardError as exc:
+        return {
+            "state": "BLOCKED",
+            "reason": str(exc),
+            "diff": {key: [] for key in ("ADDED", "REMOVED", "UPDATED", "REVOKED", "POLICY_CHANGED")},
+        }
+    if lock is None:
+        if has_machine_baseline:
+            return {
+                "state": "BLOCKED",
+                "reason": "SKILL_LOCK_MISSING",
+                "diff": {key: [] for key in ("ADDED", "REMOVED", "UPDATED", "REVOKED", "POLICY_CHANGED")},
+            }
+        if thread.get("skills"):
+            return {
+                "state": "CURRENT",
+                "reason": "LEGACY_SKILLS_MD_BINDING",
+                "legacy": True,
+                "diff": {key: [] for key in ("ADDED", "REMOVED", "UPDATED", "REVOKED", "POLICY_CHANGED")},
+            }
+        return {
+            "state": "CURRENT",
+            "reason": "NO_SKILLS_BOUND",
+            "legacy": True,
+            "diff": {key: [] for key in ("ADDED", "REMOVED", "UPDATED", "REVOKED", "POLICY_CHANGED")},
+        }
+    if not has_machine_baseline and thread.get("skills"):
+        return {
+            "state": "LEGACY_MIGRATION_REQUIRED",
+            "reason": "AUTHORITATIVE_SKILL_LOCK_NOW_EXISTS",
+            "diff": {key: [] for key in ("ADDED", "REMOVED", "UPDATED", "REVOKED", "POLICY_CHANGED")},
+        }
+    desired_ids: list[str] = []
+    current_ids = set(old_requested)
+    for skill_id, entry in lock["skills"].items():
+        allowed, targeted = _scope_allows_thread(entry, thread, task_id=task_id)
+        if not allowed:
+            continue
+        if skill_id in current_ids or targeted:
+            if entry["status"] in skills_api.BINDABLE_STATUSES:
+                desired_ids.append(skill_id)
+    baseline, desired_bound, desired_sha = skills_api.resolve_bindings(
+        founder,
+        desired_ids,
+        agent_id=thread["agent_id"],
+        workstream=thread["workstream"],
+        thread_record_id=thread["thread_record_id"],
+        task_id=task_id,
+    )
+    diff = _skill_diff(old_bound, desired_bound, lock["skills"])
+    diff_sha = _diff_sha(diff)
+    changed = any(diff.values())
+    old_required = set(thread.get("capability_baseline", []))
+    revoked_primary_caps: set[str] = set()
+    for item in old_bound:
+        current = lock["skills"].get(item["skill_id"])
+        if (
+            item.get("role") == "PRIMARY"
+            and (current is None or current.get("status") in skills_api.FAIL_CLOSED_STATUSES)
+        ):
+            revoked_primary_caps.update(item.get("capabilities", []))
+    desired_primary_caps = {
+        capability
+        for item in desired_bound
+        if item["role"] == "PRIMARY"
+        for capability in item["capabilities"]
+    }
+    replacement_needed = sorted(
+        (
+            set(thread.get("replacement_needed", []))
+            | (revoked_primary_caps & old_required)
+        ).difference(desired_primary_caps)
+    )
+    state = "REQUIRED" if changed else ("BLOCKED" if replacement_needed else "CURRENT")
+    markers = {
+        "THREAD_RECORD_ID": thread["thread_record_id"],
+        "BINDING_GENERATION": str(thread["generation"]),
+        "RUNTIME_THREAD_ID": runtime_thread_id or "UNBOUND",
+        "RUNTIME_HOST_ID": runtime_host_id or "UNBOUND",
+        "TASK_ID": task_id or "NONE",
+        "SKILL_REGISTRY_REVISION": baseline["skill_registry_revision"],
+        "SKILL_LOCK_REVISION": baseline["skill_lock_revision"],
+        "SKILL_LOCK_SHA256": baseline["skill_lock_sha256"],
+        "BOUND_SKILLS_SHA256": desired_sha,
+        "SKILL_DIFF_SHA256": diff_sha,
+    }
+    return {
+        "state": state,
+        "reason": "SKILL_BASELINE_CHANGED" if changed else "SKILL_BASELINE_CURRENT",
+        "baseline": baseline,
+        "bound_skills": desired_bound,
+        "bound_skills_sha256": desired_sha,
+        "diff": diff,
+        "diff_sha256": diff_sha,
+        "replacement_needed": replacement_needed,
+        "ack_markers": markers,
+    }
+
+
+def _assert_skill_current(
+    founder: Path,
+    thread: dict[str, Any],
+    *,
+    task_id: str | None = None,
+    allow_unbound_prebind: bool = False,
+) -> None:
+    plan = skill_sync_plan(
+        founder,
+        thread,
+        task_id=task_id,
+        _allow_unbound_prebind=allow_unbound_prebind,
+    )
+    if plan["state"] != "CURRENT":
+        reason = plan.get("reason", plan["state"])
+        raise guard.Conflict(f"SKILL_SYNC_REQUIRED: {reason}")
+    if thread.get("skill_sync_state") == "BLOCKED" or thread.get("replacement_needed"):
+        raise guard.Conflict(
+            "SKILL_REPLACEMENT_REQUIRED: a revoked PRIMARY capability lacks replacement"
+        )
 
 
 def validate_registry(registry: dict[str, Any], root: Path) -> None:
@@ -425,6 +905,7 @@ def validate_registry(registry: dict[str, Any], root: Path) -> None:
         if thread.get("thread_type") == "fork-readonly" and write_scope:
             raise guard.InvalidState("A fork-readonly Thread may not have write scope")
         _validate_skill_bindings(thread.get("skills"))
+        _validate_optional_skill_state(thread)
         _validate_dependencies(thread.get("dependencies"))
         baseline = thread.get("context_baseline")
         if not isinstance(baseline, dict) or frozenset(baseline) not in {
@@ -805,6 +1286,7 @@ def reserve_thread(
     skills: list[str],
     dependencies: list[str],
     strategy_scope: str = "candidate-bound",
+    capabilities: list[str] | None = None,
 ) -> dict[str, Any]:
     agent_id = _agent_id(agent_id)
     manager_agent_id = _agent_id(manager_agent_id)
@@ -823,6 +1305,7 @@ def reserve_thread(
     read_scope = _validate_scope(read_scope, "read_scope")
     write_scope = _validate_scope(write_scope, "write_scope")
     dependencies = _validate_dependencies(dependencies)
+    capabilities = _validate_dependencies(capabilities or [])
 
     def mutate(registry: dict[str, Any] | None, founder: Path):
         if registry is None:
@@ -842,11 +1325,55 @@ def reserve_thread(
             if primary:
                 raise guard.Conflict(f"REUSE_EXISTING_PRIMARY:{primary}")
             raise guard.Conflict("Existing Agent history requires explicit resume or handoff")
-        resolved_skills = _resolve_skills(founder, skills)
         record_id = _new_thread_record_id()
         nonce = _new_binding_nonce()
         now = guard.utc_now()
         role = "primary" if agent_kind == "persistent" else "auxiliary"
+        machine_skill_state: dict[str, Any] = {}
+        if (founder / skills_api.LOCK_NAME).exists():
+            skill_baseline, bound_skills, bound_sha = skills_api.resolve_bindings(
+                founder,
+                skills,
+                agent_id=agent_id,
+                workstream=workstream,
+                thread_record_id=record_id,
+            )
+            resolved_skills = [
+                {
+                    "name": item["skill_id"],
+                    "trust_state": item["trust_level"],
+                    "evidence_ref": ".founder/SKILL_LOCK.json",
+                }
+                for item in bound_skills
+            ]
+            bound_capabilities = sorted(
+                {
+                    capability
+                    for item in bound_skills
+                    for capability in item["capabilities"]
+                }
+            )
+            machine_skill_state = {
+                "capability_baseline": sorted(
+                    set(capabilities) | set(bound_capabilities)
+                ),
+                "skill_registry_revision": skill_baseline["skill_registry_revision"],
+                "skill_lock_revision": skill_baseline["skill_lock_revision"],
+                "skill_lock_sha256": skill_baseline["skill_lock_sha256"],
+                "bound_skills": bound_skills,
+                "bound_skills_sha256": bound_sha,
+                "skill_sync_state": "CURRENT",
+                "last_skill_sync": None,
+                "replacement_needed": [],
+            }
+        else:
+            resolved_skills = _resolve_skills(
+                founder,
+                skills,
+                agent_id=agent_id,
+                workstream=workstream,
+                thread_record_id=record_id,
+            )
         thread = {
             "thread_record_id": record_id,
             "logical_thread_name": logical_name,
@@ -886,6 +1413,7 @@ def reserve_thread(
             },
             "archive": {"archived": False, "archived_at": None, "reason": None},
         }
+        thread.update(machine_skill_state)
         registry["threads"].append(thread)
         registry["agent_bindings"][agent_id] = {
             "agent_id": agent_id,
@@ -952,6 +1480,15 @@ def bind_runtime(
             thread_type=thread["thread_type"],
             agent_kind=binding["agent_kind"],
             effective_write_scope=thread["write_scope"],
+        )
+        # A reserved Thread has no runtime identity yet by definition.  This
+        # internal pre-bind check validates its locked Skill baseline without
+        # creating an ACK path; public SKILL_SYNC planning remains blocked
+        # until the real runtime identity is bound below.
+        _assert_skill_current(
+            founder,
+            thread,
+            allow_unbound_prebind=True,
         )
         if thread["binding_nonce"] != binding_nonce:
             raise guard.Conflict("Thread creation reservation nonce does not match")
@@ -1041,6 +1578,13 @@ def assign_task(
         effective_write_scope = (
             thread["write_scope"] if task_write_scope is None else task_write_scope
         )
+        if not _scope_is_provable_subset(
+            effective_write_scope,
+            thread["write_scope"],
+        ):
+            raise guard.Conflict(
+                "Task write scope cannot expand the Thread/Agent write scope"
+            )
         strategy.enforce_thread_action(
             founder,
             operation="assign",
@@ -1057,6 +1601,7 @@ def assign_task(
             raise guard.Conflict("Thread must be explicitly recovered before ordinary dispatch")
         if not _baseline_matches(thread["context_baseline"], _context_baseline(founder)):
             raise guard.Conflict("STATE_SYNC_REQUIRED: Thread context baseline is stale")
+        _assert_skill_current(founder, thread, task_id=task_id)
         if revision:
             if thread["lifecycle_state"] != "REVISION_REQUIRED":
                 raise guard.Conflict("Revision dispatch requires REVISION_REQUIRED state")
@@ -1126,6 +1671,7 @@ def transition_thread(
         if target in {"ACTIVE", "ARCHIVED", "RECOVERING", "HANDOFF", "REVISION_REQUIRED"}:
             raise guard.Conflict("Use the dedicated guarded operation for this transition")
         if target == "WORKING":
+            _assert_skill_current(founder, thread)
             if strategy_state is not None and strategy_state["gate"]["state"] != "OPERATING":
                 if not isinstance(current_task, dict) or not {
                     "task_id",
@@ -1157,13 +1703,17 @@ def transition_thread(
                 ),
             )
         elif target in {"COMPLETED", "WAITING"} and isinstance(current_task, dict):
+            _assert_skill_current(
+                founder, thread, task_id=current_task.get("task_id")
+            )
             strategy_scope = current_task.get(
                 "strategy_scope", _thread_strategy_scope(thread)
             )
             if (
                 strategy_state is not None
                 and strategy_state["gate"]["state"] != "OPERATING"
-                and strategy_scope not in {"discovery-read-only", "unrelated-read-only"}
+                and strategy_scope
+                not in {"discovery-read-only", "adoption-read-only", "unrelated-read-only"}
                 and target == "WAITING"
             ):
                 raise guard.Conflict(
@@ -1272,7 +1822,7 @@ def state_sync(
     acknowledgement: str,
 ) -> dict[str, Any]:
     thread_record_id = _identifier(thread_record_id, "thread_record_id")
-    acknowledgement = _text(acknowledgement, "STATE_SYNC acknowledgement", max_length=1000)
+    acknowledgement = _text(acknowledgement, "STATE_SYNC acknowledgement", max_length=4096)
 
     def mutate(registry: dict[str, Any] | None, founder: Path):
         if registry is None:
@@ -1296,17 +1846,19 @@ def state_sync(
                 raise guard.Conflict(
                     "Strategic STATE_SYNC requires the old-strategy task to stop before acknowledgement"
                 )
+        current_context = _context_baseline(founder)
+        expected_markers = _state_sync_ack_markers(thread, current_context)
         strategy.validate_state_sync_ack(
             founder,
             agent_id=thread["agent_id"],
             acknowledgement=acknowledgement,
+            expected_markers=expected_markers,
         )
-        current_context = _context_baseline(founder)
         current_task = thread.get("current_task")
         if (
             isinstance(current_task, dict)
             and current_task.get("strategy_scope", _thread_strategy_scope(thread))
-            not in {"discovery-read-only", "unrelated-read-only"}
+            not in {"discovery-read-only", "adoption-read-only", "unrelated-read-only"}
             and not _baseline_matches(current_task.get("context_baseline"), current_context)
         ):
             current_task["pre_state_sync_disposition"] = current_task.get("disposition")
@@ -1329,6 +1881,116 @@ def state_sync(
         expected_state_sha=expected_state_sha,
         expected_registry_sha=expected_registry_sha,
         operation="THREAD_STATE_SYNCED",
+        mutate=mutate,
+    )
+
+
+def skill_sync(
+    project: str,
+    *,
+    owner: str,
+    activation_token: str,
+    expected_state_sha: str,
+    expected_registry_sha: str,
+    thread_record_id: str,
+    acknowledgement: str,
+    task_id: str | None = None,
+) -> dict[str, Any]:
+    """Apply one exact, Thread-bound SKILL_SYNC independently of STATE_SYNC."""
+
+    thread_record_id = _identifier(thread_record_id, "thread_record_id")
+    acknowledgement = _text(
+        acknowledgement, "SKILL_SYNC acknowledgement", max_length=4096
+    )
+    if task_id is not None:
+        task_id = _identifier(task_id, "SKILL_SYNC task_id")
+
+    def mutate(registry: dict[str, Any] | None, founder: Path):
+        if registry is None:
+            raise guard.Conflict("Thread Registry does not exist")
+        thread = _find_thread(registry, thread_record_id)
+        if thread["lifecycle_state"] in {"ARCHIVED", "HANDOFF", "FAILED"}:
+            raise guard.Conflict("Thread cannot accept SKILL_SYNC in its current state")
+        runtime = thread.get("runtime")
+        if (
+            not isinstance(runtime, dict)
+            or not runtime.get("thread_id")
+            or not runtime.get("host_id")
+        ):
+            raise guard.Conflict(
+                "SKILL_SYNC is blocked: UNBOUND_RUNTIME requires one exact runtime Thread"
+            )
+        current_task = thread.get("current_task") or {}
+        if thread["lifecycle_state"] == "WORKING" or current_task.get("disposition") in {
+            "pending-runtime-send",
+            "revision-dispatched",
+        }:
+            raise guard.Conflict("SKILL_SYNC requires active work to stop first")
+        effective_task_id = task_id or (
+            current_task.get("task_id") if isinstance(current_task, dict) else None
+        )
+        plan = skill_sync_plan(
+            founder,
+            thread,
+            task_id=effective_task_id,
+        )
+        if plan["state"] == "BLOCKED" and "ack_markers" not in plan:
+            raise guard.Conflict(f"SKILL_SYNC is blocked: {plan.get('reason')}")
+        if "ack_markers" not in plan:
+            raise guard.Conflict("SKILL_SYNC requires migration to authoritative SKILL_LOCK")
+        _require_exact_skill_sync_ack(acknowledgement, plan["ack_markers"])
+        baseline = plan["baseline"]
+        thread.update(
+            {
+                "capability_baseline": sorted(
+                    set(thread.get("capability_baseline", []))
+                    | {
+                        capability
+                        for item in plan["bound_skills"]
+                        for capability in item["capabilities"]
+                    }
+                ),
+                "skill_registry_revision": baseline["skill_registry_revision"],
+                "skill_lock_revision": baseline["skill_lock_revision"],
+                "skill_lock_sha256": baseline["skill_lock_sha256"],
+                "bound_skills": copy.deepcopy(plan["bound_skills"]),
+                "bound_skills_sha256": plan["bound_skills_sha256"],
+                "skill_sync_state": (
+                    "BLOCKED" if plan["replacement_needed"] else "CURRENT"
+                ),
+                "replacement_needed": copy.deepcopy(plan["replacement_needed"]),
+                "last_skill_sync": {
+                    "at": guard.utc_now(),
+                    "acknowledgement": acknowledgement,
+                    "diff": copy.deepcopy(plan["diff"]),
+                    "diff_sha256": plan["diff_sha256"],
+                    "task_id": effective_task_id,
+                },
+            }
+        )
+        thread["skills"] = [
+            {
+                "name": item["skill_id"],
+                "trust_state": item["trust_level"],
+                "evidence_ref": ".founder/SKILL_LOCK.json",
+            }
+            for item in plan["bound_skills"]
+        ]
+        thread["last_seen_at"] = guard.utc_now()
+        return registry, {
+            "thread_record_id": thread_record_id,
+            "skill_sync_state": thread["skill_sync_state"],
+            "diff": plan["diff"],
+            "replacement_needed": plan["replacement_needed"],
+        }
+
+    return _mutate_registry(
+        project,
+        owner=owner,
+        activation_token=activation_token,
+        expected_state_sha=expected_state_sha,
+        expected_registry_sha=expected_registry_sha,
+        operation="THREAD_SKILL_SYNCED",
         mutate=mutate,
     )
 
@@ -1569,6 +2231,7 @@ def complete_handoff(
             raise guard.Conflict("Successor must confirm a real bound runtime Thread")
         if not _baseline_matches(successor["context_baseline"], _context_baseline(founder)):
             raise guard.Conflict("Successor context is stale before handoff cutover")
+        _assert_skill_current(founder, successor)
         if binding["primary_thread_record_id"] != predecessor_thread_record_id:
             raise guard.Conflict("Agent primary changed before handoff cutover")
         predecessor["archive"] = {
@@ -1711,6 +2374,7 @@ def build_parser() -> argparse.ArgumentParser:
     reserve_parser.add_argument("--read-scope", action="append", default=[])
     reserve_parser.add_argument("--write-scope", action="append", default=[])
     reserve_parser.add_argument("--skill", action="append", default=[])
+    reserve_parser.add_argument("--capability", action="append", default=[])
     reserve_parser.add_argument("--depends-on", action="append", default=[])
     reserve_parser.add_argument(
         "--strategy-scope", choices=sorted(strategy.THREAD_STRATEGY_SCOPES), default="candidate-bound"
@@ -1752,6 +2416,12 @@ def build_parser() -> argparse.ArgumentParser:
     _add_mutation_args(sync_parser)
     sync_parser.add_argument("--thread-record-id", required=True)
     sync_parser.add_argument("--acknowledgement", required=True)
+
+    skill_sync_parser = subparsers.add_parser("skill-sync")
+    _add_mutation_args(skill_sync_parser)
+    skill_sync_parser.add_argument("--thread-record-id", required=True)
+    skill_sync_parser.add_argument("--acknowledgement", required=True)
+    skill_sync_parser.add_argument("--task-id")
 
     archive_parser = subparsers.add_parser("archive")
     _add_mutation_args(archive_parser)
@@ -1827,6 +2497,7 @@ def main(argv: list[str] | None = None) -> int:
                     read_scope=args.read_scope,
                     write_scope=args.write_scope,
                     skills=args.skill,
+                    capabilities=args.capability,
                     dependencies=args.depends_on,
                     strategy_scope=args.strategy_scope,
                 )
@@ -1871,6 +2542,13 @@ def main(argv: list[str] | None = None) -> int:
                     **common,
                     thread_record_id=args.thread_record_id,
                     acknowledgement=args.acknowledgement,
+                )
+            elif args.command == "skill-sync":
+                payload = skill_sync(
+                    **common,
+                    thread_record_id=args.thread_record_id,
+                    acknowledgement=args.acknowledgement,
+                    task_id=args.task_id,
                 )
             elif args.command == "archive":
                 payload = archive_thread(
