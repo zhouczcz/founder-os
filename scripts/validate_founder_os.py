@@ -30,6 +30,7 @@ sys.dont_write_bytecode = True
 
 import supervisor_guard as guard_module
 import thread_registry as registry_module
+import thread_context_guard as context_guard_module
 import decision_state as decision_module
 import skill_registry as skill_registry_module
 import capability_planner as capability_planner_module
@@ -38,6 +39,7 @@ import capability_planner as capability_planner_module
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 GUARD = SKILL_ROOT / "scripts" / "supervisor_guard.py"
 THREAD_REGISTRY = SKILL_ROOT / "scripts" / "thread_registry.py"
+THREAD_CONTEXT_GUARD = SKILL_ROOT / "scripts" / "thread_context_guard.py"
 DECISION_STATE = SKILL_ROOT / "scripts" / "decision_state.py"
 SKILL_REGISTRY = SKILL_ROOT / "scripts" / "skill_registry.py"
 CAPABILITY_PLANNER = SKILL_ROOT / "scripts" / "capability_planner.py"
@@ -1924,6 +1926,176 @@ class ThreadManagerStaticTests(unittest.TestCase):
         self.assertIn("鼠标/OCR/屏幕点击", self.thread_manager)
         self.assertIn("OpenAI API Key", self.thread_manager)
         self.assertIn("当前已登录的 Codex runtime", self.thread_manager)
+
+
+class ThreadContextGuardTests(unittest.TestCase):
+    THREAD_ID = "019fdc3f-55ef-7ec3-985f-c211278988a8"
+
+    @staticmethod
+    def _write_session(root: Path, name: str, content: bytes) -> Path:
+        path = root / name
+        path.write_bytes(content)
+        return path
+
+    def test_context_guard_contract_is_documented_and_progressively_disclosed(self) -> None:
+        skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
+        reference = (SKILL_ROOT / "references" / "thread-manager.md").read_text(
+            encoding="utf-8"
+        )
+        readme = (SKILL_ROOT / ".github" / "README.md").read_text(encoding="utf-8")
+        self.assertTrue(THREAD_CONTEXT_GUARD.is_file())
+        self.assertIn("Context Size Guard", reference)
+        self.assertIn("scripts/thread_context_guard.py", reference)
+        self.assertIn("ROTATE_REQUIRED / 10", reference)
+        self.assertIn("CONTEXT_HAZARD / 20", reference)
+        self.assertIn("generation+1 successor", skill)
+        self.assertIn("thread_context_guard.py", readme)
+
+    def test_clear_session_streams_boundaries_without_exposing_payload(self) -> None:
+        with v23_tempdir(prefix="founder-os-context-clear-") as directory:
+            root = Path(directory)
+            session = self._write_session(
+                root,
+                "clear.jsonl",
+                b'{"image":"data:image/png;base64,SECRET_IMAGE_BYTES"}\n'
+                b'{"status":"ok"}\n',
+            )
+            before = (session.read_bytes(), session.stat().st_mtime_ns)
+            result = context_guard_module.inspect_session(
+                session,
+                soft_limit_bytes=1024,
+                hard_limit_bytes=2048,
+                max_record_bytes=256,
+                chunk_bytes=11,
+            )
+            after = (session.read_bytes(), session.stat().st_mtime_ns)
+            self.assertEqual(result["result"], "CLEAR")
+            self.assertEqual(result["metrics"]["record_count"], 2)
+            self.assertGreaterEqual(result["metrics"]["media_marker_count"], 2)
+            self.assertTrue(result["metrics"]["complete_scan"])
+            self.assertNotIn("SECRET_IMAGE_BYTES", json.dumps(result))
+            self.assertEqual(result["changed_paths"], [])
+            self.assertEqual(before, after)
+
+    def test_soft_limit_requires_rotation_without_opening_body(self) -> None:
+        with v23_tempdir(prefix="founder-os-context-soft-") as directory:
+            root = Path(directory)
+            session = self._write_session(root, "soft.jsonl", b"x" * 80)
+            with mock.patch.object(
+                context_guard_module.os,
+                "open",
+                side_effect=AssertionError("soft-limit transcript body was opened"),
+            ):
+                result = context_guard_module.inspect_session(
+                    session,
+                    soft_limit_bytes=64,
+                    hard_limit_bytes=128,
+                    max_record_bytes=32,
+                    chunk_bytes=8,
+                )
+            self.assertEqual(result["result"], "ROTATE_REQUIRED")
+            self.assertEqual(result["inspection_method"], "STAT_ONLY_SOFT_STOP")
+            self.assertEqual(result["runtime_policy"]["read_thread"], "BLOCK")
+            self.assertEqual(result["metrics"]["scanned_bytes"], 0)
+
+    def test_hard_limit_blocks_without_opening_body(self) -> None:
+        with v23_tempdir(prefix="founder-os-context-hard-") as directory:
+            root = Path(directory)
+            session = self._write_session(root, "hard.jsonl", b"x" * 160)
+            with mock.patch.object(
+                context_guard_module.os,
+                "open",
+                side_effect=AssertionError("hard-limit transcript body was opened"),
+            ):
+                result = context_guard_module.inspect_session(
+                    session,
+                    soft_limit_bytes=64,
+                    hard_limit_bytes=128,
+                    max_record_bytes=32,
+                    chunk_bytes=8,
+                )
+            self.assertEqual(result["result"], "CONTEXT_HAZARD")
+            self.assertEqual(result["inspection_method"], "STAT_ONLY_HARD_STOP")
+            self.assertEqual(result["reason"], "TOTAL_HARD_LIMIT_REACHED")
+            self.assertEqual(result["metrics"]["scanned_bytes"], 0)
+
+    def test_oversized_record_stops_streaming_before_the_rest_of_file(self) -> None:
+        with v23_tempdir(prefix="founder-os-context-record-") as directory:
+            root = Path(directory)
+            session = self._write_session(
+                root,
+                "record.jsonl",
+                (b"x" * 40) + b"\n" + (b"later" * 40) + b"\n",
+            )
+            result = context_guard_module.inspect_session(
+                session,
+                soft_limit_bytes=512,
+                hard_limit_bytes=1024,
+                max_record_bytes=32,
+                chunk_bytes=8,
+            )
+            self.assertEqual(result["result"], "CONTEXT_HAZARD")
+            self.assertEqual(result["reason"], "MAX_RECORD_LIMIT_REACHED")
+            self.assertFalse(result["metrics"]["complete_scan"])
+            self.assertIsNone(result["metrics"]["record_count"])
+            self.assertLess(result["metrics"]["scanned_bytes"], session.stat().st_size)
+
+    def test_thread_id_locator_finds_one_session_and_missing_is_unverified(self) -> None:
+        with v23_tempdir(prefix="founder-os-context-locate-") as directory:
+            home = Path(directory)
+            day = home / "sessions" / "2026" / "08" / "13"
+            day.mkdir(parents=True)
+            self._write_session(
+                day,
+                f"rollout-2026-08-13T00-00-00-{self.THREAD_ID}.jsonl",
+                b'{"status":"ok"}\n',
+            )
+            found = context_guard_module.inspect_thread(
+                thread_id=self.THREAD_ID,
+                codex_home=home,
+            )
+            missing = context_guard_module.inspect_thread(
+                thread_id="01900000-0000-7000-8000-000000000000",
+                codex_home=home,
+            )
+            self.assertEqual(found["result"], "CLEAR")
+            self.assertEqual(found["thread_id"], self.THREAD_ID)
+            self.assertEqual(missing["result"], "UNVERIFIED")
+            self.assertEqual(missing["reason"], "TRANSCRIPT_NOT_FOUND")
+
+    def test_duplicate_transcripts_fail_closed_until_explicit_path_is_given(self) -> None:
+        with v23_tempdir(prefix="founder-os-context-duplicate-") as directory:
+            home = Path(directory)
+            active = home / "sessions" / "2026" / "08" / "13"
+            archived = home / "archived_sessions"
+            active.mkdir(parents=True)
+            archived.mkdir()
+            name = f"rollout-2026-08-13T00-00-00-{self.THREAD_ID}.jsonl"
+            self._write_session(active, name, b'{"active":true}\n')
+            self._write_session(archived, name, b'{"archived":true}\n')
+            result = context_guard_module.inspect_thread(
+                thread_id=self.THREAD_ID,
+                codex_home=home,
+            )
+            self.assertEqual(result["result"], "UNVERIFIED")
+            self.assertEqual(
+                result["reason"],
+                "MULTIPLE_TRANSCRIPTS_REQUIRE_EXPLICIT_SESSION_PATH",
+            )
+            self.assertEqual(result["metrics"]["candidate_count"], 2)
+
+    def test_hardlink_is_unverified_and_nonclear_results_have_nonzero_exit_codes(self) -> None:
+        with v23_tempdir(prefix="founder-os-context-link-") as directory:
+            root = Path(directory)
+            original = self._write_session(root, "original.jsonl", b'{"ok":true}\n')
+            linked = root / "linked.jsonl"
+            os.link(original, linked)
+            result = context_guard_module.inspect_session(linked)
+            self.assertEqual(result["result"], "UNVERIFIED")
+            self.assertIn("single-link", result["reason"])
+            self.assertEqual(context_guard_module._exit_code("CLEAR"), 0)
+            for state in ("ROTATE_REQUIRED", "CONTEXT_HAZARD", "UNVERIFIED"):
+                self.assertNotEqual(context_guard_module._exit_code(state), 0)
 
 
 class ThreadRegistryTests(unittest.TestCase):

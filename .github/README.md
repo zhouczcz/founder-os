@@ -31,11 +31,11 @@ FounderOS 把这些问题收束为一个带战略门禁、持久账本、明确�
 | 项目级 Autonomy Profile | 记录 FounderOS 在实现、战术、战略和执行层分别拥有多大自主权 |
 | Existing Project Adoption | 先只读识别和建立基线，再在授权后接管既有、完成或已发布项目；默认保持行为，不擅自重构 |
 | 持久项目账本 | 使用 `.founder/` 保存目标、路线图、决策、Agent 与最新状态，让新对话可以恢复项目 |
-| 真实 Agent / Thread 管理 | 区分一次性 Task Agent 与长期 Persistent Role；复用优先，用 STATE_SYNC 及 Skill 基线变化时的 SKILL_SYNC 防止陈旧上下文 |
+| 真实 Agent / Thread 管理 | 区分一次性 Task Agent 与长期 Persistent Role；复用优先，用 STATE_SYNC、SKILL_SYNC 和会话体积预检防止陈旧或超大上下文；员工身份保留但 Thread 可主动轮换 |
 | Capability / Skill 治理 | 先规划能力，再按需发现、审计、固定版本、批准和绑定 Skill；`Installed != Trusted != Approved != Bound`，绑定也不扩大原有权限 |
 | Workstream 与 Integration Gate | 管理依赖、并行写入边界、跨线集成、验收和返工 |
 | Single Active Supervisor | 同一项目只允许一个 ACTIVE FounderOS，使用 fencing、写锁和状态指纹降低并发污染风险 |
-| 确定性辅助脚本 | 有界采集 Adoption baseline 证据信号，并对战略状态、Supervisor、Thread / Skill Registry、CAS 和关键转换提供机器守卫 |
+| 确定性辅助脚本 | 有界采集 Adoption baseline 与 Thread transcript 体积信号，并对战略状态、Supervisor、Thread / Skill Registry、CAS 和关键转换提供机器守卫 |
 
 ## 工作方式
 
@@ -176,7 +176,7 @@ founder-os/
 │   ├── supervision.md              # Single Active Supervisor 与恢复协议
 │   ├── state-files.md              # .founder/ 账本规范
 │   ├── delegation.md               # Agent 委派、验收与返工
-│   ├── thread-manager.md            # Persistent Thread 生命周期与防陈旧上下文
+│   ├── thread-manager.md            # Persistent Thread 生命周期、超大会话轮换与防陈旧上下文
 │   ├── workstreams.md              # 依赖、并行写入和 Integration Gate
 │   ├── capability-management.md    # Capability-first 规划、差距与绑定
 │   ├── skill-governance.md         # Skill 信任、审批、版本与权限治理
@@ -188,6 +188,7 @@ founder-os/
     ├── decision_state.py           # 战略状态与授权守卫
     ├── supervisor_guard.py         # Supervisor fencing 与写锁守卫
     ├── thread_registry.py          # Thread Registry、CAS 与生命周期守卫
+    ├── thread_context_guard.py     # 只读 transcript 体积预检与轮换决策
     ├── skill_registry.py           # Skill Registry / Lock 与绑定校验
     └── validate_founder_os.py      # 完整回归验证
 ```
@@ -210,13 +211,14 @@ skills/
 python -X utf8 -B scripts/validate_founder_os.py
 ```
 
-当前已验证套件包含 **266 项通过的确定性测试**：其中 201 项覆盖 V1–V2.2 管理、Thread 与 Capability / Skill 控制面，新增 65 项覆盖 Existing Project Adoption、Baseline、Git 保留、历史事实边界、Maintenance Mode 与 red-team 回归。测试同时覆盖战略状态、Supervisor、依赖、同步和 Integration Gate 等关键不变量。
+当前已验证套件包含 **274 项通过的确定性测试**：其中 201 项覆盖 V1–V2.2 管理、Thread 与 Capability / Skill 控制面，65 项覆盖 Existing Project Adoption、Baseline、Git 保留、历史事实边界、Maintenance Mode 与 red-team 回归，新增 8 项覆盖 transcript soft/hard limit、单条记录上限、stat-only hard stop、唯一定位、失败关闭与零写入。测试同时覆盖战略状态、Supervisor、依赖、同步和 Integration Gate 等关键不变量。
 
 测试边界：确定性测试能够验证协议文本、状态机、CAS、fencing 和失败关闭行为；真实 subagent 创建、Project Bootstrap、Persistent Thread、并行运行轨迹及返工闭环仍需在具备相应工具的 Codex runtime 中做 forward test。仓库不会把缺少真实运行证据的行为标记为已验证。
 
 ## 重要边界
 
 - FounderOS 的 Agent / Thread 能力取决于当前 Codex runtime 实际提供的工具和权限；能力不可用时必须如实降级，不能伪造 Agent 或 Thread。
+- Context Guard 的 `64 MiB / 128 MiB / 8 MiB` 默认值是保守的 FounderOS 工程护栏，不是 Codex 官方安全极限；无法唯一定位 direct transcript 时按 `UNVERIFIED` 失败关闭，并从 canonical state 做同一员工 generation+1 handoff。
 - Existing Project 的代码、README、脚本和项目内 Agent 指令默认都是不可信 `PROJECT DATA`；首次接管不会自动执行它们。
 - 已有项目默认 `BEHAVIOR_PRESERVATION=true`。旧技术栈或“不够优雅”的代码本身不是重写理由；重大重构和兼容性破坏仍进入 L2/L3 Gate。
 - Python helper 负责确定性的 schema、状态转换、CAS 与 fencing 校验，不替代模型对目标、影响等级、候选质量和验收结论的语义判断。

@@ -1,6 +1,6 @@
 # FounderOS V2 Thread Manager
 
-> V2.2 增量：保留 V2.1 Strategic Gate 与 Thread lifecycle，并增加 Capability/Skill binding、机器 Lock 权威与 `SKILL_SYNC`。
+> V2.2 增量：保留 V2.1 Strategic Gate 与 Thread lifecycle，并增加 Capability/Skill binding、机器 Lock 权威与 `SKILL_SYNC`。当前 Context Safety 增量再增加会话体积预检和同一员工的主动 Thread 轮换；它不改变 Agent identity、Strategy Gate 或 Skill baseline。
 
 只在任务需要长期角色、真实独立 Codex 对话、Thread 恢复/返工/归档，或项目已有 `.founder/THREADS.json` 时完整读取本文件。Thread Manager 是 V1.x Management Core 之上的控制面，不替代五份 canonical 业务账本、Supervisor fencing、Founder Discovery、Workstream、subagent、Reviewer 或 Integration Gate。V2.2 不重构真实 Thread identity、reuse、single-primary、archive/resume 或 handoff；只在 V2.1 Strategy fence 之外增加精确 Skill binding/sync，两个 baseline 相互独立。
 
@@ -14,6 +14,7 @@
 - [Thread Registry](#thread-registry)
 - [V2.1 Strategic Gate dispatch fence](#v21-strategic-gate-dispatch-fence)
 - [生命周期](#生命周期)
+- [Context Size Guard](#context-size-guard)
 - [真实操作协议](#真实操作协议)
 - [Write Scope 与 Skill](#write-scope-与-skill)
 - [Stale Context Protection](#stale-context-protection)
@@ -62,6 +63,7 @@ ADVISOR、REVIEWER、Worker、Lead 和 Specialist 默认只能读取被授权范
 - `THREAD_ARCHIVE_AVAILABLE`
 - `THREAD_INTERRUPT_AVAILABLE`
 - `THREAD_FORK_AVAILABLE`
+- `THREAD_CONTEXT_PREFLIGHT_AVAILABLE`
 - `RUNTIME_SKILL_DISCOVERY_AVAILABLE`
 - `SKILL_CURATOR_AVAILABLE`
 
@@ -77,6 +79,7 @@ Thread Manager 只使用用户当前已登录的 Codex runtime/app-server 能力
 - resume WAITING/COMPLETED 可复用原 Thread；ARCHIVED 必须先有真实 reopen/unarchive 证据；
 - interrupt 不存在时标 `UNSUPPORTED`，不得用 archive 或带 git/worktree 副作用的 runtime handoff 冒充；
 - fork 即使存在，也默认创建 non-primary/read-only 分支，不能复制原 Agent 的写权限；
+- context preflight 只有在能用 Thread ID 唯一定位 direct local transcript，或调用者提供已验证的 explicit transcript path 时才算 `SUPPORTED`；仅有 Thread title、项目名或一次 runtime read 不算体积证据；
 - 名称只供人阅读，绝不按标题自动绑定身份。
 
 当前产品若规定可见 Thread 只能在用户明确授权下创建，FounderOS 必须遵守；项目管理授权不会覆盖 runtime 的外部操作规则。
@@ -124,9 +127,10 @@ Gate=`ADOPTION_STATE_REQUIRED` 时只允许 canonicalization 和必要只读复�
 2. 当前任务属于哪个 Workstream/能力？
 3. 是否已有同一 `agent_id` 的 pending create 或唯一 primary binding？
 4. 该 binding 与 runtime 对账是否 healthy、`strategy_scope`/write scope 是否适合、Strategy 与 Capability/Skill baseline 是否 current，当前 Strategic Gate 是否允许发送？
-5. 如果是，向原 Thread `SEND_TASK`；
-6. 如果不是，判断是一次性 Task 还是确实需要 Persistent Role；
-7. 只有长期价值大于维护成本时才 reserve/create 新 Thread。
+5. 对已有真实 Thread 做 Context Size Guard；只有 `CLEAR` 才继续复用；
+6. `ROTATE_REQUIRED / CONTEXT_HAZARD / UNVERIFIED` 时保留同一 `agent_id`，按 Thread Handoff 建立 generation+1 successor，不向旧 Thread 发新任务；
+7. 如果没有可复用员工，判断是一次性 Task 还是确实需要 Persistent Role；
+8. 只有长期价值大于维护成本时才 reserve/create 新 Thread。
 
 发现同一 Persistent Agent 有两个 primary、两个 pending create 或两个具有同一写权限的 fork 时进入 RECOVERY，禁止创建第三个。Thread 暂时不可见不等于已删除；先 direct read/对账，不能因一次 list 漏项就复制员工。
 
@@ -165,6 +169,8 @@ Gate=`ADOPTION_STATE_REQUIRED` 时只允许 canonicalization 和必要只读复�
 - canonical context baseline、blocked reason；新 baseline 在 Strategy 已初始化时同时包含 `STRATEGY_CONTEXT_REVISION / STRATEGY_CONTEXT_SHA256`；
 - 可选 `capability_baseline`、`skill_registry_revision`、`skill_lock_revision`、精确 `bound_skills`、`skill_sync_state` 和 `last_skill_sync`；
 - handoff 与 archive 状态。
+
+Context Guard 输出是一次只读、即时的 runtime/transcript 证据，不自动写入 `THREADS.json`，也不成为第七份 baseline。若它触发 handoff，把 result、reason、session bytes、max record（可得时）、观察时间和 helper schema 作为 handoff evidence/summary ref 保存；不得保存 Base64 正文或复制整段会话。
 
 runtime identity 默认记为 `observed`；只有 runtime 真正承诺跨会话稳定时才记 `stable`。ID 是不可信 opaque scalar，只作为 JSON/tool 参数；不得拼成 shell、路径或命令。
 
@@ -233,6 +239,30 @@ Thread `COMPLETED` 只说明 runtime 返回，不等于 FounderOS accepted，不
 
 Lifecycle 图保持 V2 不变，但 `→ WORKING` 现在是 Strategy-fenced transition：无论是首次 assign、返工、resume 后继续，还是 recovery 后重启，Registry 都必须用当前 task 的 `strategy_scope` 与 effective write scope 重做 Gate 检查。旧 intent 在 Gate 改变后不能仅凭 lifecycle 合法性恢复。
 
+## Context Size Guard
+
+Persistent Agent 可以长期存在，但单个 Thread 不是永久办公室。FounderOS Main Thread 同样不是永久控制室。每次对已有 Worker 或待恢复的 Main Thread 执行 `read / send / continue / resume / fork / open` 前、每个任务或里程碑结束后，以及图片/Base64/超长工具输出明显增加后，都先做即时预检。不要为了判断是否过大而先调用 `read_thread`。
+
+优先用只读 helper 按 filename 定位本地 transcript；也可以传已经独立验证的绝对 JSONL 路径：
+
+```text
+python -B scripts/thread_context_guard.py inspect --thread-id <runtime-thread-id> --codex-home <absolute-CODEX_HOME>
+python -B scripts/thread_context_guard.py inspect --session <absolute-session.jsonl>
+```
+
+helper 不解析 JSON、不解码 Base64、不调用 Codex runtime、不写文件。总大小达到 soft/hard limit 时只读文件 metadata 并立即返回，不打开正文；只有低于 soft limit 的 transcript 才以固定大小 chunk 流式计算记录边界和 media marker。默认 `64 MiB soft / 128 MiB hard / 8 MiB max record` 是 FounderOS 的保守工程护栏，不是 Codex 官方安全极限；在有受控压测证据前只能调得更严格，不能为绕过 handoff 临时调大。
+
+| Result / exit | 允许 | 必须禁止 / 下一步 |
+|---|---|---|
+| `CLEAR / 0` | compact list/wait；必要时最近 1–3 turns、`includeOutputs=false`、每项最多 4096 字符的 bounded read | 正常 fence 后继续；下一个操作前重新预检 |
+| `ROTATE_REQUIRED / 10` | 只在确认不取正文的情况下做 compact list/wait，处置当前已运行 turn | 禁止 read/send/resume/fork/open；在安全边界为同一 `agent_id` 创建 generation+1 successor |
+| `CONTEXT_HAZARD / 20` | canonical 账本、Registry、Workstream、worktree diff/artifact/hash 与安全 compact metadata | 禁止任何旧 Thread body access，也禁止要求旧 Thread 自我总结；直接从 canonical evidence 生成 HANDOFF SUMMARY |
+| `UNVERIFIED / 30` | filename-only 重定位或明确 session path 的再预检；否则只用 canonical evidence | 在取得唯一 direct transcript 的 `CLEAR` 前，按 hazard 等级禁止 body access，或直接安全 handoff |
+
+任一非 `CLEAR` 都关闭旧 Thread 的新 submission authority。不得 fork 超限 Thread：fork 可能继承 completed history，不能作为压缩或恢复手段。Worker handoff 使用现有 `begin-handoff → generation+1 bind → ACK/sync → complete-handoff`，所以员工身份、职责和已接受成果保持不变；只替换 runtime Thread binding。Main Thread 则执行本文件下方的 Main Thread Handoff 和 Supervisor CAS，不把 Main 伪装成普通 Agent generation。旧 Thread cutover 后再按 ID archive；hazard/unverified 的 archive 验证只用 compact list/inventory，不用 direct read。
+
+优先把图片、日志、测试报告和大工具输出保存为 workspace artifact，只在 Thread 中传路径、hash 和精炼摘要。上下文压缩不等于 transcript 文件缩小，不能把 compacted model context 当作本地历史体积证据。
+
 ## 真实操作协议
 
 ### CREATE / NAME
@@ -251,13 +281,13 @@ Discovery 中确需短期 Thread 时，先将其声明为 `agent_kind=task`、`t
 
 ### SEND / CONTINUE
 
-发送前检查 exact runtime ID、project binding、primary generation、Strategic Gate、task-level `strategy_scope`/effective write scope、依赖、context baseline、Skill Lock/runtime visibility 和 `skill_sync_state`。先用 Registry CAS 记录 task/send intent，再调用 runtime send。调用结果不确定时进入 reconciliation，不盲目重发造成重复 turn。
+发送前检查 exact runtime ID、project binding、primary generation、Strategic Gate、task-level `strategy_scope`/effective write scope、依赖、context baseline、Skill Lock/runtime visibility、`skill_sync_state` 和即时 Context Guard=`CLEAR`。先用 Registry CAS 记录 task/send intent，再调用 runtime send。调用结果不确定时进入 reconciliation，不盲目重发造成重复 turn。
 
 Persistent Role 的第二、第三个任务继续使用同一 runtime identity。Worker prompt 必须带 `agent_id`、`thread_record_id/generation`、task ID、project binding、scope、Strategy/Capability baseline、精确 bound Skills/Lock revision 和 acceptance criteria。
 
 ### READ / WAIT
 
-create 是异步的；返回 ID 不是任务完成。使用 runtime 的 wait/read 能力读取最近状态、turn/result、阻塞或输入请求。分页或 host visibility 不完整时明确 `unverified`，不得把“没看到”判成 missing。
+create 是异步的；返回 ID 不是任务完成。优先使用不取正文的 compact wait/list 获取最近状态。只有即时 Context Guard=`CLEAR` 时才使用 bounded read 读取最近状态、turn/result、阻塞或输入请求；默认不包含 tool outputs。分页或 host visibility 不完整时明确 `unverified`，不得把“没看到”判成 missing，也不得为补齐信息绕过 Context Guard。
 
 Main Thread 阅读实际交付物和证据，按 acceptance criteria 验收。不能把 Worker 摘要直接写成项目结论。
 
@@ -271,9 +301,9 @@ Main Thread 阅读实际交付物和证据，按 acceptance criteria 验收。�
 
 ### ARCHIVE / RESUME
 
-只有无活动写入且结果已处置的 WAITING/COMPLETED/BLOCKED/FAILED 等 Thread 可 archive。先 Registry fence，再调用真实 archive 并 bounded read/list 验证；archive 失败也不恢复普通 dispatch 权限。
+只有无活动写入且结果已处置的 WAITING/COMPLETED/BLOCKED/FAILED 等 Thread 可 archive。先 Registry fence，再调用真实 archive；`CLEAR` 可 bounded read/list 验证，其他 Context Guard result 只用 compact list/inventory 验证。archive 失败也不恢复普通 dispatch 权限。
 
-ARCHIVED Thread 不接普通任务。恢复必须先真实 unarchive/reopen，再记录 `ARCHIVED → RECOVERING`，完成 direct read、project/Agent/context 对账以及必要的 `STATE_SYNC/SKILL_SYNC` 后进入 WAITING，最后才可 send。
+ARCHIVED Thread 不接普通任务。恢复前先对 archived transcript 做 Context Guard；非 `CLEAR` 不 reopen，直接为同一 Agent 走安全 handoff/recovery。`CLEAR` 才可真实 unarchive/reopen，再记录 `ARCHIVED → RECOVERING`，完成 bounded read、project/Agent/context 对账以及必要的 `STATE_SYNC/SKILL_SYNC` 后进入 WAITING，最后才可 send。
 
 archive、runtime inventory reconcile 与 reopen 记录本身可在 Strategic Gate 中作为安全控制继续，但 resume 不等于业务授权。恢复后的 Thread 必须保持 `RECOVERING/WAITING`，直到 current Strategy baseline 对齐且 Gate 允许相应 task；非 `OPERATING` 时不得以“恢复旧员工”为理由重新进入 candidate-bound `WORKING`。
 
@@ -360,10 +390,10 @@ ACTIVE 在 Registry CAS 前验证 exact `host_id + runtime_thread_id + agent_id/
 
 Thread Handoff 是逻辑上下文/Agent binding 更换，不等于某些 runtime 中用于移动 git checkout/worktree 的同名操作；后者不得替代本协议。
 
-适用于上下文过长、Thread 异常/不可恢复、模型配置改变或旧 Thread 归档：
+适用于 Context Guard 非 `CLEAR`、上下文过长、Thread 异常/不可恢复、模型配置改变或旧 Thread 归档：
 
 1. 让旧 primary 停止活动写入，进入 HANDOFF，关闭 submission authority。
-2. 生成精炼 HANDOFF SUMMARY：当前任务、已接受成果、未完成项、有效决策、风险、artifact/hash、required capabilities、Primary/Supporting bound Skills、精确 approved versions/hashes、skill baseline 和 revoked/deprecated 项；不要复制整段聊天。
+2. 生成精炼 HANDOFF SUMMARY：当前任务、已接受成果、未完成项、有效决策、风险、artifact/hash、required capabilities、Primary/Supporting bound Skills、精确 approved versions/hashes、skill baseline 和 revoked/deprecated 项；不要复制整段聊天。hazard/unverified 时只从 canonical state、Registry、worktree/artifact 与 compact metadata 重建，不读取旧 Thread body。
 3. FounderOS 验收 summary 和 current baseline。
 4. 为同一 `agent_id` reserve generation+1 candidate；candidate 初始只读、非 primary。
 5. 真实创建并绑定新 Thread，发送 canonical handoff context。
@@ -375,7 +405,7 @@ Thread Handoff 是逻辑上下文/Agent binding 更换，不等于某些 runtime
 
 ## Main Thread Handoff
 
-Main Thread 过长或异常时沿用 [supervision.md](supervision.md) 的 Single Active Supervisor handoff，不另造第二套 owner 机制：
+Main Thread 的 Context Guard 非 `CLEAR`、过长或异常时沿用 [supervision.md](supervision.md) 的 Single Active Supervisor handoff，不另造第二套 owner 机制，也不得 fork 旧 Main 来继承 completed history：
 
 1. 旧 Main 停止新派发、协调 Worker、checkpoint Strategy、五账本、Skill Registry/Lock 和 THREADS fingerprints。
 2. 用 `offer-handoff` 冻结 source fingerprints，释放写锁。
@@ -387,7 +417,7 @@ Main Thread 过长或异常时沿用 [supervision.md](supervision.md) 的 Single
 
 ## 恢复与对账
 
-恢复顺序：Entry Classification/Adoption state → Supervisor mode → Strategy（若存在）→ 五账本 → AGENTS → SKILLS/SKILL_LOCK → THREADS → Workstreams/Integration → runtime/Skill capabilities → list/direct read 对账。有效 current FounderOS 项目正常恢复，不再次 Adoption；Gate 非 `OPERATING` 时先恢复它要求的 canonical/sync/recovery 控制步骤，不把 Registry 中旧 `WORKING` 或 `skill_sync_state=CURRENT` 标签当作继续发送的充分授权。
+恢复顺序：Entry Classification/Adoption state → Supervisor mode → Strategy（若存在）→ 五账本 → AGENTS → SKILLS/SKILL_LOCK → THREADS → Workstreams/Integration → runtime/Skill capabilities → Context Size Guard → compact list/bounded read 对账。有效 current FounderOS 项目正常恢复，不再次 Adoption；Gate 非 `OPERATING` 时先恢复它要求的 canonical/sync/recovery 控制步骤，不把 Registry 中旧 `WORKING`、`skill_sync_state=CURRENT` 或曾经 `CLEAR` 的旧预检当作继续发送的充分授权。
 
 按 exact `host_id + runtime_thread_id + project_binding_id + agent_id/generation` 分类：
 
@@ -402,7 +432,7 @@ Main Thread 过长或异常时沿用 [supervision.md](supervision.md) 的 Single
 
 Skill binding 另按 [skill-governance.md](skill-governance.md) 分类 `HEALTHY / MISSING / HASH_MISMATCH / VERSION_MISMATCH / REVOKED / UNVERIFIED`。`HASH_MISMATCH/VERSION_MISMATCH/REVOKED` 对受影响任务 fail closed；投影文本不能覆盖机器 Lock。
 
-同名 Thread 不自动收养。missing/unverified Persistent Thread 不自动复制 Agent；先重试 direct read，确认不可恢复后走 Thread Handoff。Registry fingerprint drift、wrong-project、duplicate-primary 或未知 transaction lock 一律 RECOVERY。
+同名 Thread 不自动收养。missing/unverified Persistent Thread 不自动复制 Agent；先用 exact ID 做 filename-only transcript 定位和 Context Guard。只有 `CLEAR` 才 bounded read；其他结果直接按同一 Agent generation+1 Thread Handoff。Registry fingerprint drift、wrong-project、duplicate-primary 或未知 transaction lock 一律 RECOVERY。
 
 旧项目没有 `STRATEGY.json` 时，Thread Registry 的旧六项业务 baseline 继续合法，只读查看/对账不触发迁移或写入。下一次执行型 ACTIVE 接管先按 Founder Discovery 协议从 PROJECT/DECISIONS 初始化 `LEGACY_INFERRED + OPERATING`；不重新 Bootstrap、不要求 Founder 重选。Strategy 出现后，旧六项 baseline 与当前八项 baseline 不匹配，相关 Thread 标为 stale 并对同一 runtime identity 做一次 Strategy-aware `STATE_SYNC`。不能为了兼容而把缺失 Strategy 字段假填成当前值，也不能因此创建 duplicate primary。
 
@@ -423,6 +453,8 @@ V2 不替代 V1 subagent：
 - Thread ID 控制字符/注入、重复 runtime binding、按 title 绑定；
 - 同一 Persistent Agent 多 primary/pending create；
 - fork 继承 primary/write authority；
+- 未做即时 Context Guard，或在 `ROTATE_REQUIRED / CONTEXT_HAZARD / UNVERIFIED` 下 read/send/resume/fork/open 旧 Thread；
+- 把模型 context compaction、turn count、Thread title 或 bounded response 长度当作 transcript 体积证明；
 - archived Thread 收普通任务；
 - stale Thread 按旧规格工作；
 - Skill Lock/installed hash/version/approval 不一致、revoke binding、runtime Skill 不可见或未完成 `SKILL_SYNC` 仍接任务/提交结果；
@@ -445,6 +477,7 @@ Supervisor token 是 cooperative fencing，不是对恶意本机进程的 OS 身
 - 正在工作的员工（角色 + working/waiting/revision required/blocked）；
 - 新创建的员工对话；
 - 已归档的员工对话；
+- 员工 Context Guard 预警、强制轮换、hazard/unverified 与 generation cutover；
 - 风险/阻塞；
 - 重要 Capability/Skill 事件：关键 gap、风险审批、安装/升级、hash mismatch、revoke 和受影响员工；
 - Adopted 项目的 lifecycle、maintenance mode，以及本轮是否创建/复用/归档了真实员工（适用时）；

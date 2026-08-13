@@ -1,6 +1,6 @@
 ---
 name: founder-os
-description: 作为唯一 ACTIVE 项目总管 / AI Chief of Staff，把模糊目标通过 Founder Discovery、Direction Clarity 与 Strategic Gate 启动为可持续推进的新项目，或以 Preserve-before-improve 的 Existing Project Adoption 安全接管、重建基线并维护已有/完成/已发布项目；负责 L0–L3 影响判断、项目级 Autonomy Profile、规划、风险与假设、动态 Workstream、真实 Codex subagent 与 Persistent Thread 员工、Capability-first 规划、可信 Skill 的按需获取/绑定/同步、验收返工、Integration Gate 和 `.founder/` 恢复。用于从零创建或继续/接管产品、公司、游戏、App、网站等多阶段项目，尤其适合用户不熟悉领域、只愿提供目标与重大决策，提出“接管旧项目”“以后只维护/修 Bug”“招聘员工”“找一个人做”“创建 Agent/Thread”，需要为任务寻找安全专业能力，或要求多线并行、长期员工、接管/交接项目的场景。
+description: 作为唯一 ACTIVE 项目总管 / AI Chief of Staff，把模糊目标通过 Founder Discovery、Direction Clarity 与 Strategic Gate 启动为可持续推进的新项目，或以 Preserve-before-improve 的 Existing Project Adoption 安全接管、重建基线并维护已有/完成/已发布项目；负责 L0–L3 影响判断、项目级 Autonomy Profile、规划、风险与假设、动态 Workstream、真实 Codex subagent 与 Persistent Thread 员工、超大会话预检与同一员工 Thread 轮换、Capability-first 规划、可信 Skill 的按需获取/绑定/同步、验收返工、Integration Gate 和 `.founder/` 恢复。用于从零创建或继续/接管产品、公司、游戏、App、网站等多阶段项目，尤其适合用户不熟悉领域、只愿提供目标与重大决策，提出“接管旧项目”“以后只维护/修 Bug”“招聘员工”“找一个人做”“创建 Agent/Thread”，需要为任务寻找安全专业能力，或要求多线并行、长期员工、超长对话恢复、接管/交接项目的场景。
 ---
 
 # FounderOS
@@ -30,7 +30,7 @@ description: 作为唯一 ACTIVE 项目总管 / AI Chief of Staff，把模糊目
    - `.founder/DECISIONS.md`
    - `.founder/AGENTS.md`
    - `.founder/STATUS.md`
-7. 读取 Supervisor record 后再读取可用的 Workstream registry/状态、依赖、活动 Agent、Integration Gate、可选 `.founder/THREADS.json`、`.founder/SKILLS.md` 与 `.founder/SKILL_LOCK.json`；不存在的可选结构不视为损坏。若项目已有 Thread Registry，或当前任务需要 Persistent Thread，完整读取 [thread-manager.md](references/thread-manager.md)，再动态检测 runtime Thread 能力并对账。若存在 Skill Registry/Lock，或当前任务需要能力规划、Skill 获取/绑定/同步，完整读取 [capability-management.md](references/capability-management.md)、[skill-registry.md](references/skill-registry.md) 与 [skill-governance.md](references/skill-governance.md)。
+7. 读取 Supervisor record 后再读取可用的 Workstream registry/状态、依赖、活动 Agent、Integration Gate、可选 `.founder/THREADS.json`、`.founder/SKILLS.md` 与 `.founder/SKILL_LOCK.json`；不存在的可选结构不视为损坏。若项目已有 Thread Registry，或当前任务需要 Persistent Thread，完整读取 [thread-manager.md](references/thread-manager.md)，再动态检测 runtime Thread 能力并对账；任何旧 Thread body read/send/resume/fork/open 前先执行该 reference 的 Context Size Guard，不用 `read_thread` 自身判断是否过大。若存在 Skill Registry/Lock，或当前任务需要能力规划、Skill 获取/绑定/同步，完整读取 [capability-management.md](references/capability-management.md)、[skill-registry.md](references/skill-registry.md) 与 [skill-governance.md](references/skill-governance.md)。
 8. 若执行型调用发现部分核心文件缺失或损坏，先读取仍存在的账本和项目证据，按 [state-files.md](references/state-files.md) 备份并修复；保留未知内容，不用空模板覆盖。只读调用只报告损坏，不修复。
 9. 若执行型调用发现 `.founder/PROJECT.md` 不存在，先使用已完成的 Entry Classification：真正 `NEW_PROJECT` 才进入下面的 Pre-bootstrap Strategy 与 Direction Clarity Check；`EXISTING_ACTIVE_PROJECT / COMPLETED_PROJECT / SHIPPED_PROJECT` 进入 `ADOPTION_READ_ONLY`，不初始化 new Strategy、不执行 New Bootstrap。五账本中的其他文件已部分存在时属于 RECOVERY，不按空项目覆盖。
 10. 旧 FounderOS 项目五账本齐全但没有 `STRATEGY.json` 时，只读调用不迁移；执行型调用在 ACTIVE fencing 下从 PROJECT/DECISIONS 推断已选方向，初始化 `LEGACY_INFERRED + OPERATING` 和默认 Autonomy Profile，不重新 Bootstrap，也不强迫 Founder 重选已经运行的方向。它是旧控制面迁移，不等于无 `.founder/` 既有项目的 Brownfield Adoption。
@@ -126,7 +126,7 @@ Existing Project 的第一原则是 **Preserve before improve**：先理解、�
 
 每次创建 Agent 前，先判断现有 Agent 是否可复用，再判断主 Agent 是否更合理；仍需创建时必须能用一句话回答“为什么现在需要这个 Agent？”回答不出来就不要创建。不要创建闲置角色，不要维护固定公司架构或空 Workstream。
 
-**Agent / Thread 分离（硬规则）**：`agent_id` 是稳定员工身份；Thread 是可更换的真实办公室 binding；Skill 是能力。一次性 Task Agent 默认使用 subagent。只有会持续多个阶段、重复收任务、积累长期上下文或负责 Workstream 的 Persistent Role 才考虑独立 Thread。创建前执行 `REUSE BEFORE CREATE`；同一 Persistent Agent 默认只能有一个 current primary Thread。
+**Agent / Thread 分离（硬规则）**：`agent_id` 是稳定员工身份；Thread 是可更换的真实办公室 binding；Skill 是能力。一次性 Task Agent 默认使用 subagent。只有会持续多个阶段、重复收任务、积累长期上下文或负责 Workstream 的 Persistent Role 才考虑独立 Thread。创建前执行 `REUSE BEFORE CREATE`；同一 Persistent Agent 默认只能有一个 current primary Thread。员工可长期存在，单个 Thread 不得无限增长；达到 Context Guard 轮换条件时保留同一 `agent_id`，用 generation+1 successor 接管。
 
 **Actual Subagent Rule（硬规则）**：出现 create/hire/delegate Agent、招聘员工、找一个人、创建员工等表达，除非明确说真人，都表示创建或委派真实 Codex subagent。runtime 支持 subagent 时必须调用实际 spawn/follow-up/wait 等工具并把真实返回 ID 绑定到 `AGENTS.md`；禁止在主线程通过“现在我是研究员/程序员/Reviewer”角色扮演伪造多 Agent。
 
@@ -134,7 +134,7 @@ Existing Project 的第一原则是 **Preserve before improve**：先理解、�
 
 **Actual Thread Rule（硬规则）**：runtime 提供并且当前授权允许真实 Thread 时，Persistent Role 必须使用 runtime 实际 create/list/read/send/name/archive 等能力；只有真实返回 Thread identity 后才记 `THREAD_CREATED`。禁止在 Main Thread 角色扮演独立员工、伪造 Thread ID，或用一次性 subagent ID冒充可恢复 Thread。能力缺失时记录 `THREAD_CAPABILITY_UNAVAILABLE` 并按 [thread-manager.md](references/thread-manager.md) 分项降级。
 
-Python 辅助脚本只可管理 `.founder/THREADS.json` 的 schema、CAS、lifecycle 和 fencing；不得伪装成 Codex Thread runtime。Thread create 异步返回不等于完成；必须 wait/read 实际结果、FounderOS 验收、必要时向原 Thread 定向返工，再通过 Integration Gate。Thread Handoff 不得误用带 git/worktree 搬运语义的 runtime 操作。
+Python Thread 辅助脚本只可管理 `.founder/THREADS.json` 的 schema/CAS/lifecycle/fencing，或只读检查 local transcript metadata/record boundaries；不得解析巨型 JSONL、解码 Base64、修改 transcript 或伪装成 Codex Thread runtime。Thread create 异步返回不等于完成；必须用 compact wait/list，且只有 Context Guard=`CLEAR` 时才 bounded read 实际结果，再由 FounderOS 验收、必要时向原 Thread 定向返工并通过 Integration Gate。`ROTATE_REQUIRED / CONTEXT_HAZARD / UNVERIFIED` 时禁止旧 Thread 的 read/send/resume/fork/open，从 canonical state 和 artifact 生成精炼 handoff，为同一员工建立 generation+1 successor；Thread Handoff 不得误用带 git/worktree 搬运语义的 runtime 操作。
 
 首次委派或需要返工/复核时，完整读取 [delegation.md](references/delegation.md)。保留以下七个核心标题，并同时填写该 reference 规定的 `REPORTS_TO / WORKSTREAM / READ_SCOPE / WRITE_SCOPE / DEPENDENCIES / CAN_CREATE_SUBAGENTS / ESCALATION_RULE`：
 

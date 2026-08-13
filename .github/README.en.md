@@ -31,11 +31,11 @@ FounderOS turns these failure modes into a managed project loop with strategic g
 | Project-level Autonomy Profile | Records how much autonomy FounderOS has at the implementation, tactical, strategic, and executive levels |
 | Existing Project Adoption | Performs read-only detection and baseline reconstruction first, then adopts active, completed, or shipped projects only after authorization; stable behavior is preserved by default |
 | Persistent project ledgers | Stores goals, roadmap, decisions, agents, and current status in `.founder/` so a new conversation can restore the project |
-| Real Agent / Thread management | Separates one-off Task Agents from long-lived Persistent Roles; reuses first, using STATE_SYNC and SKILL_SYNC when the Skill baseline changes to reject stale context |
+| Real Agent / Thread management | Separates one-off Task Agents from long-lived Persistent Roles; reuses first, using STATE_SYNC, SKILL_SYNC, and transcript-size preflight to reject stale or oversized context while preserving the Agent identity across proactive Thread rotation |
 | Capability / Skill governance | Plans capabilities first, then discovers, audits, pins, approves, and binds Skills just in time; `Installed != Trusted != Approved != Bound`, and binding never expands existing permissions |
 | Workstreams + Integration Gate | Manages dependencies, parallel-write boundaries, cross-workstream integration, acceptance, and rework |
 | Single Active Supervisor | Allows only one ACTIVE FounderOS per project, using fencing, single-writer leases, and state fingerprints to reduce concurrent-state corruption |
-| Deterministic helper scripts | Collects bounded, evidence-backed baseline signals and provides machine guards for strategy state, Supervisor state, Thread / Skill Registries, CAS operations, and critical transitions |
+| Deterministic helper scripts | Collects bounded, evidence-backed Adoption baseline and Thread transcript-size signals, and provides machine guards for strategy state, Supervisor state, Thread / Skill Registries, CAS operations, and critical transitions |
 
 ## How it works
 
@@ -177,7 +177,7 @@ founder-os/
 │   ├── supervision.md              # Single Active Supervisor and recovery protocol
 │   ├── state-files.md              # .founder/ ledger specification
 │   ├── delegation.md               # Agent delegation, acceptance, and rework
-│   ├── thread-manager.md            # Persistent Thread lifecycle and stale-context protection
+│   ├── thread-manager.md            # Persistent Thread lifecycle, oversized-session rotation, and stale-context protection
 │   ├── workstreams.md              # Dependencies, parallel writes, and Integration Gate
 │   ├── capability-management.md    # Capability-first planning, gaps, and bindings
 │   ├── skill-governance.md         # Skill trust, approval, versions, and permissions
@@ -189,6 +189,7 @@ founder-os/
     ├── decision_state.py           # Strategy state and authorization guards
     ├── supervisor_guard.py         # Supervisor fencing and write-lock guards
     ├── thread_registry.py          # Thread Registry, CAS, and lifecycle guards
+    ├── thread_context_guard.py     # Read-only transcript-size preflight and rotation decision
     ├── skill_registry.py           # Skill Registry / Lock and binding validation
     └── validate_founder_os.py      # Full regression validation
 ```
@@ -211,13 +212,14 @@ Run from `founder-os/`:
 python -X utf8 -B scripts/validate_founder_os.py
 ```
 
-The current validated suite contains **266 passing deterministic tests**: 201 cover the V1–V2.2 management, Thread, and Capability / Skill control planes, with 65 additional tests for Existing Project Adoption, baselines, Git preservation, historical-evidence boundaries, Maintenance Mode, and red-team cases. The suite also covers strategy state, Supervisor behavior, dependencies, synchronization, Integration Gate, and other critical invariants.
+The current validated suite contains **274 passing deterministic tests**: 201 cover the V1–V2.2 management, Thread, and Capability / Skill control planes; 65 cover Existing Project Adoption, baselines, Git preservation, historical-evidence boundaries, Maintenance Mode, and red-team cases; and 8 cover transcript soft/hard limits, oversized records, stat-only hard stops, unique location, fail-closed behavior, and zero writes. The suite also covers strategy state, Supervisor behavior, dependencies, synchronization, Integration Gate, and other critical invariants.
 
 Validation boundary: deterministic tests can verify protocol text, state machines, CAS, fencing, and fail-closed behavior. Real subagent creation, Project Bootstrap, Persistent Threads, parallel runtime traces, and rework loops still require forward tests in a Codex runtime that exposes the corresponding tools. The repository does not label behavior as verified when it lacks real runtime evidence.
 
 ## Important boundaries
 
 - FounderOS Agent / Thread capabilities depend on the tools and permissions exposed by the current Codex runtime. When a capability is unavailable, FounderOS must degrade honestly rather than fabricate an Agent or Thread.
+- The Context Guard's `64 MiB / 128 MiB / 8 MiB` defaults are conservative FounderOS engineering guardrails, not official Codex safety limits. If it cannot uniquely locate a direct transcript, it fails closed as `UNVERIFIED` and performs a same-Agent generation+1 handoff from canonical state.
 - Existing-project code, READMEs, scripts, and repository Agent instructions are untrusted `PROJECT DATA`; initial adoption never executes them automatically.
 - Existing projects default to `BEHAVIOR_PRESERVATION=true`. An old stack or inelegant code is not, by itself, a reason to rewrite; major refactors and compatibility breaks still go through L2/L3 gates.
 - The Python helpers provide deterministic schema, state-transition, CAS, and fencing checks. They do not replace the model's semantic judgment about goals, impact levels, candidate quality, or acceptance decisions.
