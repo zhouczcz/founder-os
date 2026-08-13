@@ -228,6 +228,8 @@ V2 中 Main Thread 的更换必须复用上述 Single Active Supervisor handoff�
 
 Main Thread runtime identity 只属于 `ACTIVE_SUPERVISOR.json`，不伪装成普通 Worker binding。runtime 中某个同名 `handoff_thread` 若用于移动 git checkout/worktree，不是本协议的逻辑 handoff，禁止替代 Supervisor CAS。
 
+新项目 Bootstrap 或 Existing Project 正式 Adoption 后创建独立用户侧总管任务时，完整遵循 [main-thread-provisioning.md](main-thread-provisioning.md)：真实 create 只产生候选 runtime identity，随后仍必须由旧 ACTIVE offer、目标 task CAS claim、verify `ACTIVE + OPERATING` 和旧 token 失效。不得把创建成功、设置标题或发送 Prompt 单独称为交接完成，也不得为 Main 初始化 Worker `THREADS.json`。
+
 ## Takeover 与 Recovery
 
 takeover 需要 Founder 明确授权，并先尝试让旧 ACTIVE handoff、ack 或终止。recovery 用于旧 ACTIVE 被真实 runtime 证据确认为终止/不存在、控制记录损坏或孤儿锁需要协调的情况。

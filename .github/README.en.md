@@ -31,6 +31,7 @@ FounderOS turns these failure modes into a managed project loop with strategic g
 | Project-level Autonomy Profile | Records how much autonomy FounderOS has at the implementation, tactical, strategic, and executive levels |
 | Existing Project Adoption | Performs read-only detection and baseline reconstruction first, then adopts active, completed, or shipped projects only after authorization; stable behavior is preserved by default |
 | Persistent project ledgers | Stores goals, roadmap, decisions, agents, and current status in `.founder/` so a new conversation can restore the project |
+| Dedicated manager task | After Bootstrap or formal Adoption, creates one real Codex manager task for the canonical project root and transfers control through Supervisor handoff; a portfolio does not fan out one manager per child project |
 | Real Agent / Thread management | Separates one-off Task Agents from long-lived Persistent Roles; reuses first, using STATE_SYNC, SKILL_SYNC, and transcript-size preflight to reject stale or oversized context while preserving the Agent identity across proactive Thread rotation |
 | Capability / Skill governance | Plans capabilities first, then discovers, audits, pins, approves, and binds Skills just in time; `Installed != Trusted != Approved != Bound`, and binding never expands existing permissions |
 | Workstreams + Integration Gate | Manages dependencies, parallel-write boundaries, cross-workstream integration, acceptance, and rework |
@@ -52,8 +53,9 @@ flowchart TD
     B -->|Valid .founder/| M["Restore existing FounderOS state"]
     G --> H["Reconstruction, Baseline, and Adoption Review"]
     H -->|Formal adoption authorized| I["Canonical State + Adoption Gate"]
-    D --> J["Plan, execute, or delegate just in time"]
-    I --> J
+    D --> N["Create or reuse a dedicated manager task and hand off"]
+    I --> N
+    N --> J["Plan, execute, or delegate just in time"]
     J --> K["Acceptance, Integration Gate, and state update"]
     K --> J
 ```
@@ -124,6 +126,7 @@ I am working alone and want to avoid spending money during the early stage.
 Act as my project lead and keep the project moving.
 Make reasonable professional decisions unless the action changes the major direction,
 costs substantial money, or is irreversible.
+After Bootstrap, create and hand off to one dedicated manager conversation for this project.
 Start now.
 ```
 
@@ -136,6 +139,7 @@ The project root is D:\Projects\ExistingApp.
 This project is complete; future work should focus on maintenance, bug fixes, and necessary updates.
 Keep the Audit phase strictly read-only; do not execute project scripts or modify files.
 After the Adoption Review, if no L2/L3 gate blocks it, explicitly authorize adoption state only within .founder/**.
+After formal Adoption, create and hand off to one dedicated manager conversation for the canonical project root.
 ```
 
 When entering a new project, FounderOS first checks whether the direction is clear enough:
@@ -178,6 +182,7 @@ founder-os/
 │   ├── state-files.md              # .founder/ ledger specification
 │   ├── delegation.md               # Agent delegation, acceptance, and rework
 │   ├── thread-manager.md            # Persistent Thread lifecycle, oversized-session rotation, and stale-context protection
+│   ├── main-thread-provisioning.md # Dedicated manager-task creation, Supervisor handoff, and acceptance
 │   ├── workstreams.md              # Dependencies, parallel writes, and Integration Gate
 │   ├── capability-management.md    # Capability-first planning, gaps, and bindings
 │   ├── skill-governance.md         # Skill trust, approval, versions, and permissions
@@ -212,9 +217,9 @@ Run from `founder-os/`:
 python -X utf8 -B scripts/validate_founder_os.py
 ```
 
-The current validated suite contains **274 passing deterministic tests**: 201 cover the V1–V2.2 management, Thread, and Capability / Skill control planes; 65 cover Existing Project Adoption, baselines, Git preservation, historical-evidence boundaries, Maintenance Mode, and red-team cases; and 8 cover transcript soft/hard limits, oversized records, stat-only hard stops, unique location, fail-closed behavior, and zero writes. The suite also covers strategy state, Supervisor behavior, dependencies, synchronization, Integration Gate, and other critical invariants.
+The current validated suite contains **282 passing deterministic tests**: 201 cover the V1–V2.2 management, Thread, and Capability / Skill control planes; 65 cover Existing Project Adoption, baselines, Git preservation, historical-evidence boundaries, Maintenance Mode, and red-team cases; 8 cover transcript soft/hard limits, oversized records, stat-only hard stops, unique location, fail-closed behavior, and zero writes; and 8 cover authorization, uniqueness, project targeting, Supervisor handoff, acceptance, and recovery for the dedicated manager task. The suite also covers strategy state, Supervisor behavior, dependencies, synchronization, Integration Gate, and other critical invariants.
 
-Validation boundary: deterministic tests can verify protocol text, state machines, CAS, fencing, and fail-closed behavior. Real subagent creation, Project Bootstrap, Persistent Threads, parallel runtime traces, and rework loops still require forward tests in a Codex runtime that exposes the corresponding tools. The repository does not label behavior as verified when it lacks real runtime evidence.
+Validation boundary: deterministic tests can verify protocol text, state machines, CAS, fencing, and fail-closed behavior. Real subagent creation, Project Bootstrap, dedicated manager-task creation and handoff, Persistent Threads, parallel runtime traces, and rework loops still require forward tests in a Codex runtime that exposes the corresponding tools. The repository does not label behavior as verified when it lacks real runtime evidence.
 
 ## Important boundaries
 

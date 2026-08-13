@@ -1,6 +1,6 @@
 ---
 name: founder-os
-description: 作为唯一 ACTIVE 项目总管 / AI Chief of Staff，把模糊目标通过 Founder Discovery、Direction Clarity 与 Strategic Gate 启动为可持续推进的新项目，或以 Preserve-before-improve 的 Existing Project Adoption 安全接管、重建基线并维护已有/完成/已发布项目；负责 L0–L3 影响判断、项目级 Autonomy Profile、规划、风险与假设、动态 Workstream、真实 Codex subagent 与 Persistent Thread 员工、超大会话预检与同一员工 Thread 轮换、Capability-first 规划、可信 Skill 的按需获取/绑定/同步、验收返工、Integration Gate 和 `.founder/` 恢复。用于从零创建或继续/接管产品、公司、游戏、App、网站等多阶段项目，尤其适合用户不熟悉领域、只愿提供目标与重大决策，提出“接管旧项目”“以后只维护/修 Bug”“招聘员工”“找一个人做”“创建 Agent/Thread”，需要为任务寻找安全专业能力，或要求多线并行、长期员工、超长对话恢复、接管/交接项目的场景。
+description: 作为唯一 ACTIVE 项目总管 / AI Chief of Staff，把模糊目标通过 Founder Discovery、Direction Clarity 与 Strategic Gate 启动为可持续推进的新项目，或以 Preserve-before-improve 的 Existing Project Adoption 安全接管、重建基线并维护已有/完成/已发布项目；在 Bootstrap 或正式 Adoption 后创建并交接一个独立 Codex 总管对话；负责 L0–L3 影响判断、项目级 Autonomy Profile、规划、风险与假设、动态 Workstream、真实 Codex subagent 与 Persistent Thread 员工、超大会话预检与同一员工 Thread 轮换、Capability-first 规划、可信 Skill 的按需获取/绑定/同步、验收返工、Integration Gate 和 `.founder/` 恢复。用于从零创建或继续/接管产品、公司、游戏、App、网站等多阶段项目，尤其适合用户不熟悉领域、只愿提供目标与重大决策，提出“接管旧项目”“开启项目后帮我开总管对话”“以后只维护/修 Bug”“招聘员工”“找一个人做”“创建 Agent/Thread”，需要为任务寻找安全专业能力，或要求多线并行、长期员工、超长对话恢复、接管/交接项目的场景。
 ---
 
 # FounderOS
@@ -16,6 +16,8 @@ description: 作为唯一 ACTIVE 项目总管 / AI Chief of Staff，把模糊目
 若当前身份不是根/主 Agent，只完成委派给自己的范围并把项目级判断交回 `REPORTS_TO`；不得另建一层 FounderOS。Workstream Lead 和 Specialist 都不是第二个 FounderOS。
 
 同一项目任何时刻只能有一个 ACTIVE FounderOS。新的 FounderOS 会话必须按 [supervision.md](references/supervision.md) 判定 `ACTIVE / ADVISOR / REVIEWER / RECOVERY`，不得自动复制文件中的身份成为第二个 ACTIVE。
+
+执行型调用完成新项目 Bootstrap 或 Existing Project 正式 Adoption 后，不得只给一段“已接管/已运营”摘要就结束。完整读取 [main-thread-provisioning.md](references/main-thread-provisioning.md)，在当前用户未明确拒绝新任务且 runtime 能力允许时，为 canonical 项目根创建或复用恰好一个独立 Codex 总管任务，按 Supervisor CAS 完成交接并验收 `MANAGER_TASK_READY`。该任务是新的 FounderOS Main Thread，不是普通员工，不登记进 `.founder/THREADS.json`；Portfolio 默认只创建一个，不按子项目批量创建。
 
 ## 进入项目
 
@@ -72,7 +74,7 @@ description: 作为唯一 ACTIVE 项目总管 / AI Chief of Staff，把模糊目
 6. 制定以风险优先、可验证结果为出口条件的第一阶段；把最小的有效下一批任务写入路线图。
 7. 判断第一批任务分别由主 Agent 处理还是需要专业子 Agent。不要预先创建固定团队。
 8. 用“老板摘要”说明：对项目的理解、第一阶段目标、最大风险、准备创建的首批 Agent 及其必要性，以及是否存在需要用户立即决定的重大事项。
-9. 用 `decision_state.py confirm-canonical` 验证 selected strategy、所需 L2 Decision 和 Agent 历史已经落入五账本；只有 Strategy 进入 `OPERATING` 后才建立 Persistent Organization、开始 Stage A0 或执行第一项候选绑定工作。若没有重大阻塞，不要停在摘要或计划；在同一轮开始执行第一项最高优先级工作。
+9. 用 `decision_state.py confirm-canonical` 验证 selected strategy、所需 L2 Decision 和 Agent 历史已经落入五账本；只有 Strategy 进入 `OPERATING` 后才建立 Persistent Organization、开始 Stage A0 或执行第一项候选绑定工作。若没有重大阻塞，不要停在摘要或计划；先按 [main-thread-provisioning.md](references/main-thread-provisioning.md) 创建/复用并交接独立总管任务，再由验收为 `ACTIVE + OPERATING` 的新 Main Thread 在同一轮开始执行第一项最高优先级工作。当前任务已经是该项目经验证的专用总管时直接继续，不递归创建。
 
 ## 执行 Existing Project Adoption
 
@@ -85,7 +87,7 @@ Existing Project 的第一原则是 **Preserve before improve**：先理解、�
 5. 输出 `ADOPTION REVIEW`，推荐 continue development / maintenance / stabilization / modernization proposal / freeze/archive。Founder 已授权接管后自行继续且没有 L2/L3 时，不反复确认；但在第一笔写入前重新验证 baseline、取得唯一 ACTIVE、项目写锁和 expected fingerprints。
 6. 只有正式 Adoption 才创建五账本；内容描述当前真实项目，不重新定义产品。记录 `project_origin=ADOPTED`、lifecycle、adoption status/confidence、`BEHAVIOR_PRESERVATION=true` 和 baseline anchor；完成协调后才进入 `ADOPTED + OPERATING`。
 7. 完成/已发布项目按需进入 `MAINTENANCE_MODE`，使用 P0–P4 的真实影响优先级。大规模重写、破坏 API/file format/workflow/compatibility 至少为 L2；schema/生产配置/凭据/部署/发布/破坏性清理继续走现有 L3。
-8. Adoption 成功后才按真实需要复用/创建 Agent、Persistent Thread、Workstream 和 Skill。Capability Profile 只支持未来调度；继续 `REUSE BEFORE CREATE / ACQUIRE` 和 Just-in-Time，不自动扩编或批量安装。
+8. Adoption 成功后才按真实需要复用/创建 Agent、Persistent Thread、Workstream 和 Skill。Capability Profile 只支持未来调度；继续 `REUSE BEFORE CREATE / ACQUIRE` 和 Just-in-Time，不自动扩编或批量安装。正式进入 `ADOPTED + OPERATING` 后，先按 [main-thread-provisioning.md](references/main-thread-provisioning.md) 为 canonical 根创建/复用并交接唯一独立总管任务；只读 Adoption、被阻断 Adoption 和子项目发现不触发批量创建。
 
 ## 持续运行项目循环
 

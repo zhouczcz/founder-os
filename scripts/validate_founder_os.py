@@ -10325,6 +10325,106 @@ class ProjectAdoptionRedTeamV23Tests(_V23FixtureMixin, unittest.TestCase):
             self.assertEqual(before, v23_snapshot_tree(base))
 
 
+class ManagerTaskProvisioningV24Tests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
+        cls.reference = (
+            SKILL_ROOT / "references" / "main-thread-provisioning.md"
+        ).read_text(encoding="utf-8")
+        cls.supervision = (
+            SKILL_ROOT / "references" / "supervision.md"
+        ).read_text(encoding="utf-8")
+        cls.thread_manager = (
+            SKILL_ROOT / "references" / "thread-manager.md"
+        ).read_text(encoding="utf-8")
+        cls.ui = (SKILL_ROOT / "agents" / "openai.yaml").read_text(
+            encoding="utf-8"
+        )
+        cls.readme = (SKILL_ROOT / ".github" / "README.md").read_text(
+            encoding="utf-8"
+        )
+
+    def test_v24_reference_is_progressively_disclosed_and_ui_trigger_is_current(self) -> None:
+        path = SKILL_ROOT / "references" / "main-thread-provisioning.md"
+        self.assertTrue(path.is_file())
+        self.assertIn("main-thread-provisioning.md", self.skill)
+        self.assertIn("## 目录", "\n".join(self.reference.splitlines()[:30]))
+        self.assertIn("独立总管对话", self.ui)
+        self.assertIn("$founder-os", self.ui)
+
+    def test_v24_bootstrap_and_adoption_trigger_one_manager_task_only_after_operating(self) -> None:
+        for token in (
+            "bootstrapped + OPERATING",
+            "ADOPTED + OPERATING",
+            "恰好一个",
+            "Provisioning 是 Bootstrap/Adoption 的交付 Gate",
+            "不得只输出“已接管/已运营”",
+        ):
+            self.assertIn(token, self.reference)
+        self.assertIn("先按 [main-thread-provisioning.md]", self.skill)
+
+    def test_v24_readonly_optout_and_existing_manager_never_create_duplicates(self) -> None:
+        for token in (
+            "留在当前对话",
+            "ADOPTION_READ_ONLY",
+            "已有另一个健康专用总管任务",
+            "禁止创建第二个",
+            "复用并返回该任务",
+        ):
+            self.assertIn(token, self.reference)
+
+    def test_v24_portfolio_cardinality_and_main_worker_separation_are_explicit(self) -> None:
+        self.assertIn("Portfolio / workspace 根默认只创建一个总管任务", self.reference)
+        self.assertIn("不自动创建多个 Main", self.reference)
+        self.assertIn("不登记进 `.founder/THREADS.json`", self.skill)
+        self.assertIn("Main Task 永远不作为普通 Persistent Agent", self.thread_manager)
+
+    def test_v24_runtime_target_is_exact_saved_project_local_without_model_override(self) -> None:
+        for token in (
+            "list_projects",
+            "canonical path 精确匹配",
+            "environment 使用 `local`",
+            "不用 `worktree`",
+            "不用 `projectless`",
+            "不指定 model/thinking",
+        ):
+            self.assertIn(token, self.reference)
+
+    def test_v24_async_create_supervisor_handoff_and_wakeup_order_is_explicit(self) -> None:
+        create = self.reference.index("创建一个 exact project/local 任务")
+        offer = self.reference.index("执行 `offer-handoff`")
+        followup = self.reference.index("向新任务发送包含 exact project root")
+        ready = self.reference.index("新任务返回 `MANAGER_TASK_READY`")
+        self.assertLess(create, offer)
+        self.assertLess(offer, followup)
+        self.assertLess(followup, ready)
+        self.assertIn("不能把创建一个新聊天等同于已取得 ACTIVE", self.supervision)
+
+    def test_v24_prompt_is_readonly_until_handoff_and_cannot_recurse_or_leak_token(self) -> None:
+        for token in (
+            "MANAGER_TASK_BOOTSTRAP=1",
+            "HANDOFF_READY=1",
+            "禁止再次创建另一个总管任务",
+            "不要 claim、不要写项目、不要派发 Agent",
+            "绝不发送旧 activation token",
+        ):
+            self.assertIn(token, self.reference)
+
+    def test_v24_acceptance_failure_recovery_and_real_runtime_boundary_are_honest(self) -> None:
+        for token in (
+            "真实非空 `threadId + hostId`",
+            "旧 Main token/epoch 已失效",
+            "MANAGER_TASK_READY",
+            "MANAGER_TASK_CREATE_FAILED",
+            "MANAGER_TASK_CAPABILITY_UNAVAILABLE",
+            "::created-thread{threadId=",
+            "它不能伪造真实 Codex task",
+        ):
+            self.assertIn(token, self.reference)
+        self.assertIn("独立总管任务", self.readme)
+
+
 def main() -> int:
     os.environ.setdefault("PYTHONDONTWRITEBYTECODE", "1")
     skill_before = snapshot_tree(SKILL_ROOT)

@@ -31,6 +31,7 @@ FounderOS 把这些问题收束为一个带战略门禁、持久账本、明确�
 | 项目级 Autonomy Profile | 记录 FounderOS 在实现、战术、战略和执行层分别拥有多大自主权 |
 | Existing Project Adoption | 先只读识别和建立基线，再在授权后接管既有、完成或已发布项目；默认保持行为，不擅自重构 |
 | 持久项目账本 | 使用 `.founder/` 保存目标、路线图、决策、Agent 与最新状态，让新对话可以恢复项目 |
+| 独立总管对话 | Bootstrap 或正式 Adoption 完成后，为 canonical 项目根创建一个真实 Codex 总管任务并用 Supervisor handoff 交接；Portfolio 不按子项目泛滥创建 |
 | 真实 Agent / Thread 管理 | 区分一次性 Task Agent 与长期 Persistent Role；复用优先，用 STATE_SYNC、SKILL_SYNC 和会话体积预检防止陈旧或超大上下文；员工身份保留但 Thread 可主动轮换 |
 | Capability / Skill 治理 | 先规划能力，再按需发现、审计、固定版本、批准和绑定 Skill；`Installed != Trusted != Approved != Bound`，绑定也不扩大原有权限 |
 | Workstream 与 Integration Gate | 管理依赖、并行写入边界、跨线集成、验收和返工 |
@@ -52,8 +53,9 @@ flowchart TD
     B -->|有效 .founder/| M["恢复现有 FounderOS 状态"]
     G --> H["现状重建、Baseline 与 Adoption Review"]
     H -->|允许正式接管| I["Canonical State + Adoption Gate"]
-    D --> J["规划、执行或按需委派"]
-    I --> J
+    D --> N["创建/复用独立总管任务并交接"]
+    I --> N
+    N --> J["规划、执行或按需委派"]
     J --> K["验收、Integration Gate 与状态更新"]
     K --> J
 ```
@@ -123,6 +125,7 @@ Codex 通常会自动发现新增或更新的 Skill；如果没有出现，请�
 
 你作为项目总管负责推进。
 除非遇到重大方向、高成本、不可逆操作，否则自行判断并继续。
+Bootstrap 完成后，为这个项目创建并交接一个独立总管对话。
 现在开始。
 ```
 
@@ -135,6 +138,7 @@ Codex 通常会自动发现新增或更新的 Skill；如果没有出现，请�
 这是一个已经完成的项目，以后主要负责维护、修 Bug 和必要更新。
 Audit 阶段严格只读，不要执行项目脚本或修改任何文件。
 完成 Adoption Review 后，如果没有 L2/L3 阻塞，明确授权仅在 .founder/** 创建接管状态。
+正式接管完成后，为 canonical 项目根创建并交接一个独立总管对话。
 ```
 
 首次进入新项目时，FounderOS 会先判断方向是否足够清楚：
@@ -177,6 +181,7 @@ founder-os/
 │   ├── state-files.md              # .founder/ 账本规范
 │   ├── delegation.md               # Agent 委派、验收与返工
 │   ├── thread-manager.md            # Persistent Thread 生命周期、超大会话轮换与防陈旧上下文
+│   ├── main-thread-provisioning.md # 独立总管任务创建、Supervisor 交接与验收
 │   ├── workstreams.md              # 依赖、并行写入和 Integration Gate
 │   ├── capability-management.md    # Capability-first 规划、差距与绑定
 │   ├── skill-governance.md         # Skill 信任、审批、版本与权限治理
@@ -211,9 +216,9 @@ skills/
 python -X utf8 -B scripts/validate_founder_os.py
 ```
 
-当前已验证套件包含 **274 项通过的确定性测试**：其中 201 项覆盖 V1–V2.2 管理、Thread 与 Capability / Skill 控制面，65 项覆盖 Existing Project Adoption、Baseline、Git 保留、历史事实边界、Maintenance Mode 与 red-team 回归，新增 8 项覆盖 transcript soft/hard limit、单条记录上限、stat-only hard stop、唯一定位、失败关闭与零写入。测试同时覆盖战略状态、Supervisor、依赖、同步和 Integration Gate 等关键不变量。
+当前已验证套件包含 **282 项通过的确定性测试**：其中 201 项覆盖 V1–V2.2 管理、Thread 与 Capability / Skill 控制面，65 项覆盖 Existing Project Adoption、Baseline、Git 保留、历史事实边界、Maintenance Mode 与 red-team 回归，8 项覆盖 transcript soft/hard limit、单条记录上限、stat-only hard stop、唯一定位、失败关闭与零写入，新增 8 项覆盖独立总管任务的授权、唯一性、项目绑定、Supervisor handoff、验收与失败恢复。测试同时覆盖战略状态、Supervisor、依赖、同步和 Integration Gate 等关键不变量。
 
-测试边界：确定性测试能够验证协议文本、状态机、CAS、fencing 和失败关闭行为；真实 subagent 创建、Project Bootstrap、Persistent Thread、并行运行轨迹及返工闭环仍需在具备相应工具的 Codex runtime 中做 forward test。仓库不会把缺少真实运行证据的行为标记为已验证。
+测试边界：确定性测试能够验证协议文本、状态机、CAS、fencing 和失败关闭行为；真实 subagent 创建、Project Bootstrap、独立总管任务创建/交接、Persistent Thread、并行运行轨迹及返工闭环仍需在具备相应工具的 Codex runtime 中做 forward test。仓库不会把缺少真实运行证据的行为标记为已验证。
 
 ## 重要边界
 

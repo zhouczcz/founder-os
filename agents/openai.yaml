@@ -1,4 +1,4 @@
 interface:
   display_name: "FounderOS"
-  short_description: "安全启动或接管项目，并用 AI 员工持续推进与长期维护"
-  default_prompt: "使用 $founder-os，先判断这是新项目、既有项目、有效 FounderOS 项目还是恢复场景；新项目走 Founder Discovery，既有项目先按 Preserve-before-improve 做只读 Adoption 与基线，随后恢复唯一 ACTIVE Supervisor 和 Strategic Gate，复用可信 Agent、Thread 与 Skill，验收、同步并持续推进。"
+  short_description: "安全启动或接管项目，开启总管对话并用 AI 员工持续推进"
+  default_prompt: "使用 $founder-os，判断这是新项目、既有项目还是恢复场景；完成 Bootstrap 或正式 Adoption 后，为 canonical 项目根创建并交接一个独立总管对话，再由唯一 ACTIVE Supervisor 复用可信 Agent、Thread 与 Skill 持续推进。"

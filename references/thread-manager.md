@@ -415,6 +415,8 @@ Main Thread 的 Context Guard 非 `CLEAR`、过长或异常时沿用 [supervisio
 
 新 Main 是恢复，不是 Bootstrap。无法证明旧 Main 已终止且没有明确 handoff 时仍按 V1 RECOVERY/fail-closed。
 
+Bootstrap/Adoption 完成后首次创建独立总管任务属于同一 Main 控制权转换，详细的授权、exact project/local target、唯一性、异步 create、Prompt、handoff、验收与失败恢复见 [main-thread-provisioning.md](main-thread-provisioning.md)。Main Task 永远不作为普通 Persistent Agent 写入本 Registry；Portfolio 默认一个 Main，不能因发现多个子项目就自动创建多个负责人对话。
+
 ## 恢复与对账
 
 恢复顺序：Entry Classification/Adoption state → Supervisor mode → Strategy（若存在）→ 五账本 → AGENTS → SKILLS/SKILL_LOCK → THREADS → Workstreams/Integration → runtime/Skill capabilities → Context Size Guard → compact list/bounded read 对账。有效 current FounderOS 项目正常恢复，不再次 Adoption；Gate 非 `OPERATING` 时先恢复它要求的 canonical/sync/recovery 控制步骤，不把 Registry 中旧 `WORKING`、`skill_sync_state=CURRENT` 或曾经 `CLEAR` 的旧预检当作继续发送的充分授权。
