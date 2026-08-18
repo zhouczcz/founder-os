@@ -1,10 +1,11 @@
-# FounderOS V2.3 Existing Project Adoption / Brownfield Mode
+# FounderOS V4.1 Existing Project Adoption / Brownfield Mode
 
-当目录可能已有代码、文档、测试、构建、发布或部署事实，Founder 明确要求接管/维护既有项目，或需要判断一个项目应继续开发、维护、稳定、冻结还是恢复时，完整读取本文件。本协议只增加 Existing Project Adoption；不重写 Founder Discovery、Single Active Supervisor、五账本、Thread、Skill 或 Integration 控制面。
+只在首次接管复杂既有项目、证据冲突或需要兼容旧 Adoption 状态时完整读取本文件。普通 F1 Bug/局部功能只用紧凑项目快照和相关文件，不重新 Adoption。
 
 ## 目录
 
 - [核心原则](#核心原则)
+- [V4.1 Profile Router](#v41-profile-router)
 - [Entry Classification](#entry-classification)
 - [Existing founder 状态分流](#existing-founder-状态分流)
 - [Adoption 状态与阶段](#adoption-状态与阶段)
@@ -42,9 +43,16 @@ Existing Project 的硬顺序是：
 - Shipped projects are protected.
 - Stable behavior is preserved before it is improved.
 
+## V4.1 Profile Router
+
+- `V4_LIGHT`（默认）：先有界只读理解与 preserve-before-improve；获写授权后优先复用/建立 PROJECT 和 ≤4 KiB STATUS，首次真实派工后使用唯一 TASK_THREADS，记录 `workflow_profile=V4_LIGHT` 与 `last_indexed_commit`。保留已有 V2.3 五账本和控制文件，但不每轮全读、不自动 Strategy migration、不初始化 Supervisor/锁/Registry。
+- `V4_GOVERNED`：只在明确启用或真实高保障场景执行本文原完整 Adoption Baseline、Single Active Supervisor、Strategy、五账本和 fail-closed control。
+- 两种 profile 都保留 dirty worktree、未知文件、当前行为和证据边界；只读请求永远零项目写入。
+- light 项目存在五账本而无 Strategy 是正常状态。旧 helper 若误入，返回 `NOT_APPLICABLE_LIGHTWEIGHT`，不得返回 `LEGACY_MIGRATION_REQUIRED` 或偷偷迁移。
+
 ## Entry Classification
 
-在任何 Strategy 初始化、Bootstrap、项目写入、依赖安装、Agent 写入委派或 Persistent Thread 创建之前，先以零写入方式分类入口。分类不是仅凭文件名或关键词完成；把 Founder 明确说明与相互独立的项目证据交叉验证。
+在任何状态初始化、项目写入、依赖安装或 Agent 写入委派前，先零写入分类入口。分类不是仅凭文件名或关键词完成；把 Founder 明确说明与相互独立的项目证据交叉验证。
 
 | Entry mode | 证据与含义 | 下一流程 |
 |---|---|---|
@@ -62,7 +70,7 @@ Existing Project 的硬顺序是：
 发现 `.founder/` 时，先按 Supervisor、Strategy 和 canonical direct-file 规则分类：
 
 - `CURRENT_VALID`：当前有效 FounderOS 项目；按正常恢复继续，**不得再次 Adoption**。
-- `LEGACY_COMPATIBLE`：旧 FounderOS 五账本/控制面；执行兼容迁移，保留历史，不把它当无状态 Brownfield。
+- `LEGACY_COMPATIBLE`：旧 FounderOS 五账本/控制面；light 保留并压缩当前索引，governed 才执行兼容迁移；都不把它当无状态 Brownfield。
 - `PARTIAL_RECOVERY_REQUIRED`：五账本部分存在或关系不一致；进入 RECOVERY，不 Bootstrap、不覆盖。
 - `CONTROL_RECOVERY_REQUIRED`：Supervisor/Strategy/Thread/Skill 控制记录损坏、只有 revision 基线、锁不明或 fingerprint 漂移；按现有 fail-closed Recovery。
 - `PRE_ADOPTION_CONTROL`：正式 Adoption 已由 ACTIVE 初始化但五账本尚未全部协调或确认；验证现有 Supervisor/Strategy 与 baseline，保持 `ADOPTION_STATE_REQUIRED`，继续 ledger reconciliation 或 `confirm-adoption`，不得重复 `init-adoption`、New Bootstrap 或创建第二个 ACTIVE。
@@ -72,7 +80,7 @@ Existing Project 的硬顺序是：
 
 ## Adoption 状态与阶段
 
-Adoption Phase 严格按：
+`V4_GOVERNED` 的完整 Adoption Phase 严格按：
 
 1. `Detect`
 2. `Read-only Audit`
@@ -93,7 +101,7 @@ Adoption Phase 严格按：
 - `BEHAVIOR_PRESERVATION = true`（Adopted 默认）
 - `PROJECT_HEALTH = GREEN | YELLOW | RED | UNKNOWN`
 
-`READ_ONLY_AUDIT` 与 `BLOCKED` 是当前运行/Review 的响应状态，不写入 V2.3 Strategy；用户要求严格只读或遇到阻塞时，不得为了保存该标签而创建/改写 `.founder/`。当前持久化 Strategy 只使用 `BASELINE_READY`（`pre-adoption`）和 `ADOPTED`（`bootstrapped`）。允许写入后才在 ACTIVE fencing 下持久化 `BASELINE_READY`，协调五账本，再进入 `ADOPTED + OPERATING`。
+`READ_ONLY_AUDIT` 与 `BLOCKED` 是当前运行/Review 的响应状态，不得为保存标签而写项目。governed 按原 `BASELINE_READY → ADOPTED + OPERATING`；light 在授权后只更新紧凑 PROJECT/STATUS，并在真实 ID 存在时更新 TASK_THREADS，不创建 Strategy。
 
 确定性交叉约束：`EXISTING_ACTIVE_PROJECT` 只配 `ACTIVE_DEVELOPMENT`；`COMPLETED_PROJECT` 只配 `FEATURE_COMPLETE / MAINTENANCE / FROZEN / ARCHIVED`；`SHIPPED_PROJECT` 只配 `SHIPPED / MAINTENANCE / FROZEN / ARCHIVED`；`COMPLETED_PROJECT / SHIPPED_PROJECT` 不得静默配 `CONTINUE_DEVELOPMENT`；`FROZEN/ARCHIVED` lifecycle 分别只配同名 management mode。需要重新开发或改变方向时先走现有 Strategic Gate。
 
@@ -221,13 +229,13 @@ python -B scripts/project_baseline.py inspect --project <absolute-project-root> 
 - 值得考虑的下一步；
 - 必须由 Founder 决定的战略事项。
 
-Adoption Gate 不是过度确认点。Founder 已明确“接管后自行维护/继续”、当前调用允许写入且没有 L2/L3 时，FounderOS 可在 Review 后自行进入正式 Adoption；但必须保持 audit 阶段零写入，在第一笔写入前重新验证 baseline、取得唯一 ACTIVE、项目写锁和 expected fingerprints。
+Adoption Gate 不是过度确认点。Founder 已明确继续维护、当前调用允许写入且没有重大方向时，light 可在 Review 后写一次最小 PROJECT/STATUS；governed 在第一笔写入前仍须重新验证 baseline、取得唯一 ACTIVE、项目写锁和 expected fingerprints。audit 阶段两者都零写入。
 
 方向、目标用户、产品形态或重大架构仍不清楚时，不把 Adoption 当成代选授权；进入现有 Strategic Proposal/Gate。只读调用、scope 冲突、假 `.founder/`、路径越界、无法证明 ACTIVE 或 baseline 已漂移时，将 Adoption 标 `BLOCKED` 并保持只读。
 
 ## 五账本后补
 
-正式 Adoption 只有 ACTIVE FounderOS 可完成。Advisor 可以提交只读 Review；Reviewer 可以验证报告；它们不得创建 canonical `.founder/`。
+本节只适用于 `V4_GOVERNED` 和旧兼容项目。正式 governed Adoption 只有 ACTIVE FounderOS 可完成；Advisor/Reviewer 不得创建 canonical `.founder/`。
 
 写入顺序：
 
@@ -239,6 +247,8 @@ Adoption Gate 不是过度确认点。Founder 已明确“接管后自行维护/
 6. 验证 baseline、账本和 Strategy，并用现有 ACTIVE checkpoint 把五账本的最新 fingerprints 写回 Supervisor；
 7. 使用 CLI `confirm-adoption` 对应的 `confirm_adoption(...)` 验收 exact canonical markers 与 checkpoint 后的当前 fence，进入 `project_origin=ADOPTED`、`adoption_status=ADOPTED`、Gate=`OPERATING`；
 8. 再按真实需要创建任务、Thread、Workstream 或 Skill binding。
+
+`V4_LIGHT` 不执行以上八步：保留所有旧文件，只把当前目标、模块地图、风险、构建/测试命令、profile 与 last indexed commit 压缩到 PROJECT/STATUS；真实工作对话只写唯一 TASK_THREADS，重大决定才写 DECISIONS，不新建重复 AGENTS/THREADS 映射。
 
 `confirm-adoption` 的 canonical machine contract 使用以下精确 English markers；实际值不能保留枚举占位符：
 
@@ -369,7 +379,7 @@ Existing Project 已有产品方向时，默认保存为 `CURRENT_SELECTED_STRAT
 
 ## Thread Agent 与 Skill 集成
 
-Adoption audit 默认由 FounderOS 或有界、真实、只读 Task subagent 完成。若确需独立 Thread，只能是 task/review、`STRATEGY_SCOPE=adoption-read-only`、effective write scope=`[]` 且有明确结束条件；正式 Adoption 前不得建立 Product/Engineering/Maintenance Persistent Role。
+Adoption audit 默认由主管只读完成；仅在审计确实独立且用户请求实现型接管时才创建有界只读工作对话。light 使用最小八字段任务包且不加载完整 Thread Manager；governed 若确需独立 Thread，只能是 task/review、`STRATEGY_SCOPE=adoption-read-only`、effective write scope=`[]` 且有明确结束条件。
 
 Adoption 成功、Gate=`OPERATING` 后继续 Thread / Agent 的 `REUSE / JUST-IN-TIME` 原则，即 `REUSE BEFORE CREATE`。只有真实需要长期上下文或 Workstream ownership 时才创建 Maintenance Lead、Technical Lead 或 Release Reviewer；不因技术栈自动生成组织结构。
 
@@ -411,7 +421,7 @@ Adoption Review/完成后的默认老板摘要：
 
 ## 恢复与限制
 
-- 新 Main 先判 current FounderOS restore、legacy migration、Recovery 或 Brownfield Adoption；不能仅因看到代码就重新接管。
+- 新 Main 先判 current FounderOS restore、light legacy preservation、governed legacy migration、Recovery 或 Brownfield Adoption；不能仅因看到代码就重新接管。
 - Adoption baseline 只能描述采集时可见范围；本地文件不能证明不可见生产系统、真实用户或外部部署。
 - 静态分析不能可靠证明 build/test/pass、运行时行为或原始历史理由。
 - Git/status、严格 `0 metadata writes` 只能在实际工具和文件系统观察范围内证明；报告未覆盖 ACL、xattr、USN、远程存储或其他平台元数据。

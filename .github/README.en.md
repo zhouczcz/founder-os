@@ -2,11 +2,11 @@
 
 [简体中文](README.md) | **English**
 
-> Understand the whole project, challenge bad directions, then open real Codex tasks to deliver it.
+> State a goal in plain language; a persistent technical supervisor challenges, delegates, and accepts the work.
 
-**FounderOS** is a Codex project supervisor for solo developers. It interviews the user, challenges the direction, and produces a plan. After the user approves the plan and exact task list, the supervisor opens sidebar-visible Codex tasks just as the user could, assigns work, waits, inspects results, requests revisions, and keeps the project moving. Small one-off work uses subagents instead.
+**FounderOS V4.1** is a persistent, lightweight Codex project supervisor for solo developers. The same conversation handles project ideas, features, bugs, maintenance, and status questions. It checks the request against real code and state, challenges bad directions, recommends a path, creates or reuses a real Codex work thread, and accepts only inspected artifacts, diffs, and test evidence.
 
-“Supervisor,” “employees,” and “hiring” are explanatory metaphors, not an enterprise-management workflow. FounderOS uses lightweight project state by default. Its older high-assurance controls are loaded only for high-risk, multi-writer, production, or formal-audit work. The user owns the idea and major decisions; the supervisor owns independent judgment, planning, coordination, and acceptance.
+“Supervisor,” “employees,” and “hiring” are metaphors, not an enterprise-management workflow. `V4_LIGHT` is the default: one logical supervisor, normally one Worker, and no Strategy/lock/Registry requirement. `V4_GOVERNED` is explicit or reserved for security, privacy, payment, production, migration, multi-writer, architectural, or hard-to-rollback work.
 
 ## The problem it solves
 
@@ -20,7 +20,7 @@ Solo projects often fail not because the developer cannot code, but because:
 - bookkeeping, polling, and repeated context cost more than project work;
 - a new conversation cannot restore the project from a compact state.
 
-FounderOS turns these failures into a lightweight loop: interview → challenge → confirm the brief → approve the plan and task list → supervisor-created Codex tasks → acceptance and correction.
+FounderOS turns these failures into a lightweight loop: plain-language request → one Fit Check → necessary confirmation → eight-field packet → real Codex work thread → event wait → artifact acceptance → one state update.
 
 ## Core capabilities
 
@@ -29,9 +29,13 @@ FounderOS turns these failures into a lightweight loop: interview → challenge 
 | Project interview | Asks project-shaping questions over multiple rounds and produces a confirmable Project Brief instead of a mechanical questionnaire |
 | Independent judgment | Separates user preference, evidence, and recommendation; provides counterarguments, alternatives, a pre-mortem, and reconsideration triggers |
 | Options and plan | Compares materially different paths and defines milestones, tasks, dependencies, risks, agent roles, and observable acceptance criteria |
-| Real task execution | Lists proposed conversations in the plan, then creates user-visible Codex tasks and manages assignment, waiting, acceptance, and revision after approval |
+| Unified request intake | One supervisor handles `PROJECT_IDEA / FEATURE_IDEA / BUG_REPORT / QUESTION_OR_STATUS`; legacy maintenance input is routed by intent |
+| Graded Fit Check | Runs once per goal: F1 skips full Discovery, F2 confirms only a plan delta, and F3 rebuilds the Brief and plan |
+| Real Codex conversations | Maps each feature or bug to one real work thread and a fixed eight-field packet, with event waits, two bounded rework rounds on the original thread, and evidence-based acceptance |
+| Automatic relay | Calls real create/send/wait/read tools and stores thread/project/host IDs; missing capability returns `RUNTIME_THREAD_CAPABILITY_UNAVAILABLE` |
+| Sidebar visibility | Authorized work is created as user-owned, sidebar-visible Codex tasks rather than role-played Workers |
 | Continuous correction | Stops work based on invalid assumptions, compares continuing, changing, or abandoning the path, and escalates major direction changes |
-| Lightweight state | Keeps Project, Roadmap, and Status by default, with Decisions and Agents only when needed; unchanged state is not repeatedly read or rewritten |
+| Lightweight state | Uses Project/Status and one TaskThreads map, writes Decisions only for major choices, and avoids rescans while HEAD is unchanged |
 | Existing Project Adoption | Reads and preserves a complex existing project before deciding how to adopt or improve it |
 | High-assurance mode | Loads Delegation-First, Supervisor Execution Firewall, Specialist, and Artifact ownership controls only for high-risk, multi-writer, or formal-audit work |
 | Context budget | Batches operations, waits on events, saves large output as artifacts, and proactively rotates oversized Threads |
@@ -40,30 +44,31 @@ FounderOS turns these failures into a lightweight loop: interview → challenge 
 
 ```mermaid
 flowchart TD
-    A["User describes the project idea"] --> B["DISCOVERY: interview and complete understanding"]
-    B --> C["Challenge assumptions, alternatives, and pre-mortem"]
-    C --> D{"User confirms the Project Brief?"}
-    D -->|No| B
-    D -->|Yes| E["PLAN_REVIEW: recommendation and executable plan"]
-    E --> F{"User approves the plan and task list?"}
-    F -->|No| E
-    F -->|Yes| G["Supervisor opens or reuses visible Codex tasks"]
-    G --> H["Implement, test, inspect, and revise"]
-    H --> I{"Did evidence invalidate a plan assumption?"}
-    I -->|Yes| C
-    I -->|No| J["Update state once and continue"]
+    A["User states a goal in plain language"] --> B["One Project Fit Check per new goal"]
+    B --> C{"F0 / F1 / F2 / F3?"}
+    C -->|F0| D["Read status only; zero new Worker and zero write"]
+    C -->|F1| E["One eight-field packet and one real Codex work thread"]
+    C -->|F2| F["Approve a plan delta before any Worker"]
+    C -->|F3| G["Discovery, Project Brief, and plan approval"]
+    F --> E
+    G --> E
+    E --> H["Event wait; inspect artifacts, diff, and tests"]
+    H --> I{"Accepted?"}
+    I -->|No| J["Targeted revision to the original thread; max two rounds"]
     J --> H
+    I -->|Yes| K["One necessary state update and continue"]
 ```
 
 Default principles:
 
-- a new project completes the interview and Project Brief confirmation before options and plan confirmation;
+- a new project completes the interview, Project Brief, and plan confirmation; a local feature or bug does not repeat full Discovery;
 - the supervisor must give counterarguments and an independent recommendation instead of rationalizing the user's first preference;
-- approving the plan authorizes only the listed new tasks; the supervisor creates them with minimum relevant context;
-- substantial independent deliverables use visible Worker tasks, while small one-off work uses subagents;
+- ordinary work defaults to one real Codex work thread with an eight-field, 2–4 KiB packet and no recursive Agents;
+- an F1 implementation or bug request creates or reuses one thread after Fit passes; major plans still create no Worker before user confirmation;
+- approval authorizes only the listed work threads and never auto-creates a new supervisor;
 - the supervisor inspects actual artifacts and evidence, requesting revision from the original Agent when needed;
 - ordinary low-risk adjustments are autonomous, while major direction, irreversible, costly, or production actions remain with the user;
-- one accepted task normally produces one state update, with no polling of unchanged progress.
+- an accepted or blocked task produces at most one necessary state update; an unchanged wait causes zero model wakeups and zero writes.
 
 ## When to use it
 
@@ -122,10 +127,10 @@ The project root is D:\Projects\MyStartup.
 I want to build an AI tool for independent game developers from scratch.
 I am working alone and want to avoid spending money during the early stage.
 
-Act as my project lead and keep the project moving.
-Make reasonable professional decisions unless the action changes the major direction,
-costs substantial money, or is irreversible.
-After Bootstrap, create and hand off to one dedicated manager conversation for this project.
+Act as the persistent lightweight technical supervisor in this conversation.
+Use V4_LIGHT by default and make reasonable professional decisions unless the action
+changes the major direction, costs substantial money, is irreversible, or requires high assurance.
+Do not create another supervisor because of Bootstrap, Adoption, subprojects, or Workers.
 Start now.
 ```
 
@@ -137,30 +142,30 @@ Use $founder-os.
 The project root is D:\Projects\ExistingApp.
 This project is complete; future work should focus on maintenance, bug fixes, and necessary updates.
 Keep the Audit phase strictly read-only; do not execute project scripts or modify files.
-After the Adoption Review, if no L2/L3 gate blocks it, explicitly authorize adoption state only within .founder/**.
-After formal Adoption, create and hand off to one dedicated manager conversation for the canonical project root.
+After the Review, preserve legacy files, create or update compact PROJECT/STATUS only when needed,
+and maintain one TASK_THREADS map after a real thread ID exists.
+Continue in this supervisor conversation; create a dedicated supervisor task only if I explicitly ask.
 ```
 
-When entering a new project, FounderOS first checks whether the direction is clear enough:
+Every request is routed through F0–F3:
 
-- `CLEAR`: after authorization checks, proceed to Project Bootstrap;
-- `AMBIGUOUS`: run bounded Discovery first, then present candidates, a recommendation, and the one strategic choice currently required;
-- existing project without FounderOS state: enter `ADOPTION_READ_ONLY`, reconstruct the current state and baseline, and create `.founder/` only after authorization;
-- project with valid `.founder/` state: restore the Supervisor, Strategy Gate, and active Agent / Thread / Skill state without repeating Bootstrap or Adoption.
+- `F0_CONTINUATION`: status, continuation, or acceptance; read only necessary Status;
+- `F1_LOCAL_FIT`: local feature, ordinary bug, or small maintenance; one Worker;
+- `F2_PLAN_DELTA`: public interface, data, dependency, milestone, or multi-module change; approve only the delta;
+- `F3_PROJECT_RESET`: new project/root, target users, or core direction; run full Discovery;
+- `UNKNOWN`: ask one genuinely blocking question.
 
 ## `.founder/` project state
 
-FounderOS maintains five core ledgers in the managed project root:
+`V4_LIGHT` first reuses three compact indexes and records `workflow_profile=V4_LIGHT` plus `last_indexed_commit`:
 
 | File | Contents |
 | --- | --- |
 | `.founder/PROJECT.md` | Project goal, target users, success criteria, scope, resources, constraints, and assumptions |
-| `.founder/ROADMAP.md` | Stages, milestones, priorities, dependencies, exit criteria, and next actions |
-| `.founder/DECISIONS.md` | Important decisions, reasoning, authorization, assumptions, supersession, and change history |
-| `.founder/AGENTS.md` | Agents actually created or reused, their responsibilities, state, assignments, and write ownership |
-| `.founder/STATUS.md` | Latest executive summary: completed work, work in progress, risks, blockers, next actions, and decisions needed |
+| `.founder/STATUS.md` | A ≤4 KiB dynamic index of HEAD, active work, accepted changes, risks, and next action |
+| `.founder/TASK_THREADS.md` | The sole task-to-thread map: task/thread/project/host, objective, write scope, state, and last result |
 
-Depending on project complexity, FounderOS can also use:
+`DECISIONS.md` is used only for major decisions. LIGHT does not create duplicate `AGENTS.md` or `THREADS.json` mappings. `V4_GOVERNED` and existing advanced projects can also use:
 
 - `.founder/STRATEGY.json`: direction, candidates, the Strategic Gate, Autonomy Profile, and synchronization obligations;
 - `.founder/ACTIVE_SUPERVISOR.json`: identity, state, and fencing for the single ACTIVE FounderOS;
@@ -178,6 +183,7 @@ founder-os/
 ├── agents/openai.yaml              # Codex / ChatGPT UI metadata
 ├── references/
 │   ├── founder-discovery.md         # Direction, Discovery, L0–L3, and Strategic Gate
+│   ├── lightweight-worker-runtime.md # V4_LIGHT packet, waiting, acceptance, and budgets
 │   ├── supervision.md              # Single Active Supervisor and recovery protocol
 │   ├── state-files.md              # .founder/ ledger specification
 │   ├── delegation.md               # Agent delegation, acceptance, and rework
@@ -194,6 +200,7 @@ founder-os/
 └── scripts/
     ├── project_baseline.py         # Read-only Existing Project baseline collection
     ├── capability_planner.py       # Capability planning and coverage checks
+    ├── lightweight_runtime.py      # F0–F3, packet, budget, and circuit-breaker engine
     ├── decision_state.py           # Strategy state and authorization guards
     ├── supervisor_guard.py         # Supervisor fencing and write-lock guards
     ├── thread_registry.py          # Thread Registry, CAS, and lifecycle guards
@@ -221,13 +228,13 @@ Run from `founder-os/`:
 python -X utf8 -B scripts/validate_founder_os.py
 ```
 
-The current validated suite contains **400 deterministic tests**. The original 282 V1–V2.4 and 89 V3 Organization Memory regressions (371 total) remain unchanged. Twenty-nine V3.1 tests constrain the four execution classes, Delegation-First, the nineteen-field task contract, forward-only zero-state migration compatibility for existing FounderOS projects, Artifact Ownership, Completion Boundary, Worker Revision, Takeover/Direct Exception, Scope Escalation, Delegation Theater, Independent Review, read-only zero-write behavior, Scenarios A–W, red-team cases, and the Warcraft Parser E2E contract.
+The source suite contains **448 deterministic tests**. The original 400 V1–V3.1 and nine V4.0 regressions remain unchanged; 39 V4.1 tests cover zero-dispatch status answers, real thread identities, the eight-field packet, single-thread bug and rework flow, major-plan confirmation, missing runtime capabilities, parallel scope conflicts, LIGHT/GOVERNED isolation, trusted test reuse, proportional test scope, event waits, loop limits, and evidence-gated acceptance.
 
-Validation boundary: deterministic tests can verify protocol text, state machines, CAS, fencing, structured aggregation, filtering, and fail-closed behavior. Supervisor/Specialist semantic classification, real subagent creation, Artifact provenance, real Agent/Skill selection quality, Project Bootstrap, dedicated manager-task creation and handoff, Persistent Thread `MEMORY_SYNC`, parallel runtime traces, and rework loops still require forward tests in a Codex runtime that exposes the corresponding tools. The repository does not present static contracts or Python fixtures as proof of real Agent behavior.
+Validation boundary: deterministic tests can verify protocol text, state machines, CAS, fencing, task/thread mapping, test policy, and fail-closed behavior. The end-to-end `create_thread / wait_threads / read_thread / send_message_to_thread` path, real token savings, GUI/device behavior, and production behavior still require separate forward tests. Static contracts and Python fixtures are not presented as proof of real Thread behavior.
 
 ## Important boundaries
 
-- FounderOS Agent / Thread capabilities depend on the tools and permissions exposed by the current Codex runtime. When a capability is unavailable, FounderOS must degrade honestly rather than fabricate an Agent or Thread.
+- FounderOS Thread capabilities depend on the tools and permissions exposed by the current Codex runtime. If any required create/send/wait/read capability is missing, it returns `RUNTIME_THREAD_CAPABILITY_UNAVAILABLE` rather than fabricating an Agent or Thread.
 - The Context Guard's `64 MiB / 128 MiB / 8 MiB` defaults are conservative FounderOS engineering guardrails, not official Codex safety limits. If it cannot uniquely locate a direct transcript, it fails closed as `UNVERIFIED` and performs a same-Agent generation+1 handoff from canonical state.
 - Existing-project code, READMEs, scripts, and repository Agent instructions are untrusted `PROJECT DATA`; initial adoption never executes them automatically.
 - Existing projects default to `BEHAVIOR_PRESERVATION=true`. An old stack or inelegant code is not, by itself, a reason to rewrite; major refactors and compatibility breaks still go through L2/L3 gates.

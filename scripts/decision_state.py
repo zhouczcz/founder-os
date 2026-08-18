@@ -34,6 +34,10 @@ EXIT_INVALID = 2
 EXIT_CONFLICT = 3
 
 CORE_LEDGERS = ("PROJECT.md", "ROADMAP.md", "DECISIONS.md", "AGENTS.md", "STATUS.md")
+WORKFLOW_PROFILES = {"V4_LIGHT", "V4_GOVERNED"}
+WORKFLOW_PROFILE_PATTERN = re.compile(
+    r"(?im)^\s*(?:[-*]\s*)?workflow_profile\s*[:=]\s*(V4_LIGHT|V4_GOVERNED)\s*$"
+)
 CLARITY_STATES = {"UNASSESSED", "CLEAR", "AMBIGUOUS", "LEGACY_INFERRED"}
 DISCOVERY_DEPTHS = {"NONE", "LIGHT", "STANDARD", "DEEP"}
 STRATEGY_STATUSES = {"UNRESOLVED", "EXPLORATORY", "RECOMMENDED", "SELECTED", "DEFERRED"}
@@ -81,6 +85,48 @@ ACTION_TYPES = {
     "subagent-dispatch",
     "executive-action",
 }
+
+
+def resolve_workflow_profile(project: str, requested: str | None = None) -> str:
+    """Resolve the explicit V4 profile without initializing or migrating state.
+
+    Legacy helpers remain governed when no marker exists.  FounderOS V4.1's
+    ordinary entry point is ``lightweight_runtime.py``, which defaults to light.
+    """
+    if requested is not None:
+        if requested not in WORKFLOW_PROFILES:
+            raise guard.InvalidState("Unknown workflow_profile")
+        return requested
+    guard.require_nonempty_text(project, "project root")
+    requested_root = Path(os.path.abspath(project))
+    if not requested_root.exists() or not requested_root.is_dir():
+        raise guard.InvalidState(f"Project root is not an existing directory: {requested_root}")
+    if guard._is_reparse_or_link(requested_root):
+        raise guard.InvalidState(f"Project root may not be a link or reparse point: {requested_root}")
+    root = requested_root.resolve(strict=True)
+    founder = root / ".founder"
+    if not founder.exists():
+        return "V4_GOVERNED"
+    if not founder.is_dir() or guard._is_reparse_or_link(founder):
+        raise guard.InvalidState("Founder state must be a direct directory")
+    observed: set[str] = set()
+    for name in ("PROJECT.md", "STATUS.md"):
+        path = founder / name
+        if not path.exists():
+            continue
+        metadata = path.lstat()
+        if guard._is_reparse_or_link(path) or not path.is_file() or metadata.st_nlink != 1:
+            raise guard.InvalidState(f"workflow profile source is not a direct file: {path}")
+        if metadata.st_size > 64 * 1024:
+            raise guard.InvalidState(f"workflow profile source is oversized: {path}")
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            raise guard.InvalidState(f"cannot read workflow profile source: {path}") from exc
+        observed.update(WORKFLOW_PROFILE_PATTERN.findall(text))
+    if len(observed) > 1:
+        raise guard.Conflict("Conflicting workflow_profile markers require recovery")
+    return next(iter(observed), "V4_GOVERNED")
 
 PROJECT_ORIGINS = {"NEW", "ADOPTED", "UNKNOWN_LEGACY"}
 PROJECT_LIFECYCLES = {
@@ -3234,6 +3280,7 @@ def authorize_action(
     project: str,
     *,
     action: str,
+    workflow_profile: str | None = None,
     strategy_scope: str | None = None,
     thread_type: str | None = None,
     agent_kind: str | None = None,
@@ -3243,6 +3290,18 @@ def authorize_action(
     action_scope: str | None = None,
 ) -> dict[str, Any]:
     """Read-only protocol preflight; semantic classification remains an Agent job."""
+    profile = resolve_workflow_profile(project, workflow_profile)
+    if profile == "V4_LIGHT":
+        return {
+            "result": "NOT_APPLICABLE_LIGHTWEIGHT",
+            "allowed": False,
+            "workflow_profile": profile,
+            "reason": (
+                "V4_LIGHT uses the lightweight runtime and does not require Strategy "
+                "authorization or legacy migration"
+            ),
+            "changed_paths": [],
+        }
     if action not in ACTION_TYPES:
         raise guard.InvalidState(f"Unknown action type: {action}")
     if strategy_scope is not None and strategy_scope not in THREAD_STRATEGY_SCOPES:
@@ -3370,8 +3429,14 @@ def enforce_thread_action(
     thread_type: str,
     agent_kind: str,
     effective_write_scope: list[str],
+    workflow_profile: str | None = None,
 ) -> None:
     """Fail closed for Thread create/bind/assign/handoff under an active Gate."""
+    profile = resolve_workflow_profile(str(founder.parent), workflow_profile)
+    if profile == "V4_LIGHT":
+        raise guard.Conflict(
+            "NOT_APPLICABLE_LIGHTWEIGHT: V4_LIGHT does not use Strategy or Thread Registry"
+        )
     if operation not in {
         "registry-init",
         "reserve",
@@ -3571,6 +3636,7 @@ def _json_array(raw: str, label: str) -> list[Any]:
 
 def _add_mutation_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--project", required=True)
+    parser.add_argument("--workflow-profile", choices=sorted(WORKFLOW_PROFILES))
     parser.add_argument("--owner", required=True)
     parser.add_argument("--activation-token", required=True)
     parser.add_argument("--expected-state-sha", required=True)
@@ -3582,6 +3648,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     inspect_parser = subparsers.add_parser("inspect")
     inspect_parser.add_argument("--project", required=True)
+    inspect_parser.add_argument("--workflow-profile", choices=sorted(WORKFLOW_PROFILES))
 
     recover_parser = subparsers.add_parser("recover-lock")
     _add_mutation_args(recover_parser)
@@ -3731,6 +3798,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     authorize_parser = subparsers.add_parser("authorize")
     authorize_parser.add_argument("--project", required=True)
+    authorize_parser.add_argument("--workflow-profile", choices=sorted(WORKFLOW_PROFILES))
     authorize_parser.add_argument("--action", choices=sorted(ACTION_TYPES), required=True)
     authorize_parser.add_argument("--strategy-scope", choices=sorted(THREAD_STRATEGY_SCOPES))
     authorize_parser.add_argument("--thread-type")
@@ -3750,12 +3818,26 @@ def emit(payload: dict[str, Any], exit_code: int = 0) -> int:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        profile = resolve_workflow_profile(args.project, args.workflow_profile)
+        if profile == "V4_LIGHT":
+            return emit(
+                {
+                    "result": "NOT_APPLICABLE_LIGHTWEIGHT",
+                    "workflow_profile": profile,
+                    "reason": (
+                        "V4_LIGHT uses scripts/lightweight_runtime.py; no Strategy "
+                        "migration or mutation was attempted"
+                    ),
+                    "changed_paths": [],
+                }
+            )
         if args.command == "inspect":
             payload = inspect_strategy(args.project)
         elif args.command == "authorize":
             payload = authorize_action(
                 args.project,
                 action=args.action,
+                workflow_profile=profile,
                 strategy_scope=args.strategy_scope,
                 thread_type=args.thread_type,
                 agent_kind=args.agent_kind,

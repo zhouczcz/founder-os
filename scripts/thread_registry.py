@@ -2721,6 +2721,9 @@ def _json_object(raw: str, label: str) -> dict[str, Any]:
 
 def _add_mutation_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--project", required=True)
+    parser.add_argument(
+        "--workflow-profile", choices=sorted(strategy.WORKFLOW_PROFILES)
+    )
     parser.add_argument("--owner", required=True)
     parser.add_argument("--activation-token", required=True)
     parser.add_argument("--expected-state-sha", required=True)
@@ -2732,6 +2735,9 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     inspect_parser = subparsers.add_parser("inspect")
     inspect_parser.add_argument("--project", required=True)
+    inspect_parser.add_argument(
+        "--workflow-profile", choices=sorted(strategy.WORKFLOW_PROFILES)
+    )
 
     init_parser = subparsers.add_parser("init")
     _add_mutation_args(init_parser)
@@ -2808,6 +2814,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     memory_plan_parser = subparsers.add_parser("memory-sync-plan")
     memory_plan_parser.add_argument("--project", required=True)
+    memory_plan_parser.add_argument(
+        "--workflow-profile", choices=sorted(strategy.WORKFLOW_PROFILES)
+    )
     memory_plan_parser.add_argument("--thread-record-id", required=True)
     memory_plan_parser.add_argument("--task-id", required=True)
     memory_plan_parser.add_argument("--selectors-json", required=True)
@@ -2857,6 +2866,26 @@ def emit(payload: dict[str, Any], exit_code: int = 0) -> int:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        requested_root = Path(os.path.abspath(args.project))
+        if args.workflow_profile is not None or requested_root.is_dir():
+            profile = strategy.resolve_workflow_profile(args.project, args.workflow_profile)
+        else:
+            # Preserve the pre-V4 CLI contract for downstream governed handlers
+            # that validate the project themselves. LIGHT callers can still fail
+            # closed without a project directory by selecting the profile.
+            profile = "V4_GOVERNED"
+        if profile == "V4_LIGHT":
+            return emit(
+                {
+                    "result": "NOT_APPLICABLE_LIGHTWEIGHT",
+                    "workflow_profile": profile,
+                    "reason": (
+                        "V4_LIGHT uses the real runtime directly and does not initialize "
+                        "or migrate THREADS.json"
+                    ),
+                    "changed_paths": [],
+                }
+            )
         if args.command == "inspect":
             payload = inspect_registry(args.project)
         elif args.command == "memory-sync-plan":

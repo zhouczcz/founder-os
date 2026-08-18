@@ -1,10 +1,18 @@
-# FounderOS V3 Thread Manager
+# FounderOS V4.1 高保障 Thread Manager
 
-> V4 普通路径：项目主管在计划中列出拟创建的用户可见 Worker 对话；用户明确确认后形成 `THREAD_PLAN_APPROVED`，主管才调用真实 `create_thread`，随后用 `wait_threads`、`send_message_to_thread` 和有界 `read_thread` 推进及验收。一次性小任务仍用 subagent，不为每个文件创建新对话。
+> `V4_LIGHT` 普通 Worker 不读取本文件，改读 [lightweight-worker-runtime.md](lightweight-worker-runtime.md)，直接用真实 `create_thread / send_message_to_thread / wait_threads / read_thread` 并记录唯一 `TASK_THREADS.md` 映射。只有 Thread 恢复/轮换/归档，或 `V4_GOVERNED` 才完整读取本文。
+
+Thread Manager 是 V1.x Management Core 之上的控制面；V4.1 保留它用于 governed 兼容、恢复与生命周期管理，不把它变成 light 默认入口。
 
 > V3 增量继续保留 V2.1 Strategic Gate、Thread lifecycle、Capability/Skill binding 与 Context Safety；只增加项目本地、任务相关、精确确认的 `MEMORY_SYNC`。它不改变 Agent identity、Strategy/Skill baseline、权限或 single-primary 规则。
 
-只在任务需要长期角色、真实独立 Codex 对话、Thread 恢复/返工/归档，或项目已有 `.founder/THREADS.json` 时完整读取本文件。Thread Manager 是 V1.x Management Core 之上的控制面，不替代五份 canonical 业务账本、Supervisor fencing、Founder Discovery、Workstream、subagent、Reviewer 或 Integration Gate。V2.2 不重构真实 Thread identity、reuse、single-primary、archive/resume 或 handoff；只在 V2.1 Strategy fence 之外增加精确 Skill binding/sync，两个 baseline 相互独立。
+只在任务需要长期角色、真实独立 Codex 对话、Thread 恢复/返工/归档，或项目已有 `.founder/THREADS.json` 时完整读取本文件。本文属于 `V4_GOVERNED`/高级兼容控制面，不替代轻量 runtime。V2.2/V3 的真实 Thread identity、reuse、single-primary、archive/resume、handoff、Strategy/Skill/Memory baseline 在高保障模式继续有效。
+
+## Profile Router
+
+- `V4_LIGHT`：每个功能/Bug 创建或复用一个真实 Codex 工作 thread，只读短轻量协议并维护 TASK_THREADS；不读 AGENTS/THREADS/Strategy/Skill/Memory，不初始化 Registry。旧 helper 被误调用时零写入返回 `NOT_APPLICABLE_LIGHTWEIGHT`；即使五账本存在而 `STRATEGY.json` 不存在，也不得返回 `LEGACY_MIGRATION_REQUIRED`。
+- `V4_GOVERNED`：本文后续的 ACTIVE、fencing、Strategy Gate、Registry、Skill/Memory sync 和 fail-closed 规则全部生效。
+- 已有高级状态损坏或项目明确选择 governed 时不得降级绕过；普通 light 项目也不得因发现旧文件被自动升级为 governed。
 
 ## 目录
 
@@ -149,7 +157,7 @@ Gate=`ADOPTION_STATE_REQUIRED` 时只允许 canonicalization 和必要只读复�
 - 可选 `STRATEGY.json` 管当前 Gate 与战略语义 context；它不是 Thread Registry，也不改变 Agent identity；
 - 可选 `SKILLS.md` 是人读投影，`SKILL_LOCK.json` 是精确 Skill binding 权威；它们不改变 Agent identity 或 Thread lifecycle；
 - Registry 存在时，其完整 SHA-256 和 `registry_revision` 纳入 Supervisor/lock fingerprints；
-- 旧项目没有 Registry 时不重新 Bootstrap；首次真实需要 Thread 时才按需初始化。若五账本齐全但 Strategy 尚未迁移，只读对账保持零写入，任何 Registry 初始化、reserve/bind/assign 或恢复执行都先完成显式 `LEGACY_INFERRED` Strategy migration。
+- 旧项目没有 Registry 时不重新 Bootstrap；`V4_GOVERNED` 首次真实需要受控 Persistent Thread 时才按需初始化。仅在 governed 下，五账本齐全但 Strategy 尚未迁移时保持只读，执行型 Registry 操作先完成显式 `LEGACY_INFERRED` Strategy migration；light 路径不进入这里。
 
 顶层字段至少包括：
 
@@ -194,9 +202,9 @@ V2 已有 Thread record 可能没有 `strategy_scope`；schema 读取时为兼�
 
 ## V2.1 Strategic Gate dispatch fence
 
-Thread Manager 每次 `reserve / bind / assign / 恢复到 WORKING / begin-handoff / successor bind / complete-handoff` 前，必须读取并校验当前 Strategy。`scripts/thread_registry.py` 会调用 `decision_state.py` 的确定性 fence；Main Thread 仍须先用影响判断确认任务声明真实，不得用伪造 scope 绕 Gate。脚本只验证已声明状态，不判断一个任务语义上是否属于 L0–L3 或是否真正与候选无关。
+`V4_GOVERNED` 的 Thread Manager 每次 `reserve / bind / assign / 恢复到 WORKING / begin-handoff / successor bind / complete-handoff` 前，必须读取并校验当前 Strategy。`scripts/thread_registry.py` 会调用 `decision_state.py` 的确定性 fence；Main Thread 仍须先用影响判断确认任务声明真实，不得用伪造 scope 绕 Gate。脚本只验证已声明状态，不判断一个任务语义上是否属于 L0–L3 或是否真正与候选无关。
 
-`STRATEGY.json` 缺失时 fence 也不再默认为可执行：空项目不得建候选/长期 Thread；五账本完整的旧项目返回 `LEGACY_MIGRATION_REQUIRED`；部分账本进入 RECOVERY。只有真正 `unrelated-read-only`、空 effective write scope 的 Task/Review，以及为旧控制面安全接管所需的最小 `control-recovery` 可以例外。可以记录旧 runtime 的 return 或安全 archive，但不得接受结果、更新 Strategy baseline、resume、创建 Registry/员工或发新任务后再补迁移。
+在 `V4_GOVERNED` 中，`STRATEGY.json` 缺失时 fence 不默认为可执行：空项目不得建候选/长期 Thread；五账本完整的旧 governed 项目返回 `LEGACY_MIGRATION_REQUIRED`；部分账本进入 RECOVERY。只有真正 `unrelated-read-only`、空 effective write scope 的 Task/Review，以及旧控制面最小 `control-recovery` 可以例外。`V4_LIGHT` 不调用该 fence。
 
 每个 Thread record 和每次 task intent 都要明确一个 `STRATEGY_SCOPE`：
 
@@ -439,11 +447,11 @@ Main Thread 的 Context Guard 非 `CLEAR`、过长或异常时沿用 [supervisio
 
 新 Main 是恢复，不是 Bootstrap。无法证明旧 Main 已终止且没有明确 handoff 时仍按 V1 RECOVERY/fail-closed。
 
-Bootstrap/Adoption 完成后首次创建独立总管任务属于同一 Main 控制权转换，详细的授权、exact project/local target、唯一性、异步 create、Prompt、handoff、验收与失败恢复见 [main-thread-provisioning.md](main-thread-provisioning.md)。Main Task 永远不作为普通 Persistent Agent 写入本 Registry；Portfolio 默认一个 Main，不能因发现多个子项目就自动创建多个负责人对话。
+只有用户明确要求创建或轮换独立主管任务时，才按 [main-thread-provisioning.md](main-thread-provisioning.md) 做同一 Main 控制权转换。Bootstrap、Adoption、发现子项目或创建 Worker 都不是自动 provisioning 触发器。Main Task 永远不作为普通 Persistent Agent 写入本 Registry；Portfolio 默认一个逻辑 Main。
 
 ## 恢复与对账
 
-恢复顺序：Entry Classification/Adoption state → Supervisor mode → Strategy（若存在）→ 五账本 → Memory summary/index（若存在，不默认读 archive）→ AGENTS → SKILLS/SKILL_LOCK → THREADS → Workstreams/Integration → runtime/Skill capabilities → Context Size Guard → compact list/bounded read 对账。有效 current FounderOS 项目正常恢复，不再次 Adoption；Gate 非 `OPERATING` 时先恢复它要求的 canonical/sync/recovery 控制步骤，不把 Registry 中旧 `WORKING`、`skill_sync_state=CURRENT`、`memory_sync_state=CURRENT` 或曾经 `CLEAR` 的旧预检当作继续发送的充分授权。
+`V4_GOVERNED` 恢复顺序：Entry Classification/Adoption state → Supervisor mode → Strategy（若存在）→ 五账本 → Memory summary/index（若存在，不默认读 archive）→ AGENTS → SKILLS/SKILL_LOCK → THREADS → Workstreams/Integration → runtime/Skill capabilities → Context Size Guard → compact list/bounded read 对账。`V4_LIGHT` 只先读紧凑 STATUS，再按当前目标和 HEAD 增量取证，不执行本顺序。有效 governed 项目正常恢复，不再次 Adoption。
 
 按 exact `host_id + runtime_thread_id + project_binding_id + agent_id/generation` 分类：
 
@@ -460,7 +468,7 @@ Skill binding 另按 [skill-governance.md](skill-governance.md) 分类 `HEALTHY 
 
 同名 Thread 不自动收养。missing/unverified Persistent Thread 不自动复制 Agent；先用 exact ID 做 filename-only transcript 定位和 Context Guard。只有 `CLEAR` 才 bounded read；其他结果直接按同一 Agent generation+1 Thread Handoff。Registry fingerprint drift、wrong-project、duplicate-primary 或未知 transaction lock 一律 RECOVERY。
 
-旧项目没有 `STRATEGY.json` 时，Thread Registry 的旧六项业务 baseline 继续合法，只读查看/对账不触发迁移或写入。下一次执行型 ACTIVE 接管先按 Founder Discovery 协议从 PROJECT/DECISIONS 初始化 `LEGACY_INFERRED + OPERATING`；不重新 Bootstrap、不要求 Founder 重选。Strategy 出现后，旧六项 baseline 与当前八项 baseline 不匹配，相关 Thread 标为 stale 并对同一 runtime identity 做一次 Strategy-aware `STATE_SYNC`。不能为了兼容而把缺失 Strategy 字段假填成当前值，也不能因此创建 duplicate primary。
+旧 governed 项目没有 `STRATEGY.json` 时，Thread Registry 的旧六项业务 baseline 继续合法，只读查看/对账不触发迁移或写入。下一次执行型 governed ACTIVE 接管才从 PROJECT/DECISIONS 初始化 `LEGACY_INFERRED + OPERATING`；不重新 Bootstrap、不要求 Founder 重选。light 项目保留旧文件但不做此迁移。Strategy 出现后，旧六项 baseline 与当前八项 baseline 不匹配，相关 Thread 标 stale 并对同一 runtime identity 做一次 `STATE_SYNC`；不得假填或创建 duplicate primary。
 
 ## 与 subagent 共存
 
@@ -468,7 +476,7 @@ V2 不替代 V1 subagent：
 
 `FounderOS Main Thread → Persistent Lead Thread → 有界 Task subagent`。
 
-一次性工作仍优先真实 subagent。Lead 只有 assignment 明确 `CAN_CREATE_SUBAGENTS=true` 时，才能在 slots、深度、scope 和角色限制内创建 Task subagent；它们不登记为 Persistent Thread，也不提升 Lead 的全局权限。所有结果仍由 FounderOS 统一验收和 Integration。
+本节只适用于 `V4_GOVERNED` 的既有 Lead 层级；`V4_LIGHT` Worker 禁止创建下级 Agent。governed Lead 只有 assignment 明确 `CAN_CREATE_SUBAGENTS=true` 时，才能在 slots、深度、scope 和角色限制内创建 Task subagent；它们不登记为 Persistent Thread，也不提升 Lead 的全局权限。所有结果仍由 FounderOS 统一验收和 Integration。
 
 ## 安全与降级
 

@@ -1,11 +1,12 @@
-# FounderOS 独立总管任务创建协议
+# FounderOS V4.1 独立主管任务创建协议
 
-在新项目完成 canonical Bootstrap、Existing Project 完成正式 Adoption，或 Founder 明确要求为已运营项目补建独立总管对话时完整读取本文件。这里的“总管任务”是用户侧可见的 **FounderOS Main Thread**，不是普通员工、Task Agent、Persistent Role 或 `.founder/THREADS.json` 记录。
+只有 Founder 明确要求“创建/打开/轮换一个独立主管任务”时完整读取本文件。Bootstrap、Adoption、发现子项目、创建 Worker 或普通恢复都不得自动触发。这里的主管任务是用户侧可见的 **FounderOS Main Thread**，不是普通 Worker、Task Agent、Persistent Role 或 `.founder/THREADS.json` 记录。
 
 ## 目录
 
 - [目标与授权](#目标与授权)
 - [触发条件](#触发条件)
+- [Profile Router](#profile-router)
 - [唯一性与项目范围](#唯一性与项目范围)
 - [Runtime 能力与项目绑定](#runtime-能力与项目绑定)
 - [创建与交接顺序](#创建与交接顺序)
@@ -17,19 +18,20 @@
 
 ## 目标与授权
 
-FounderOS 的正式启动结果不是一段结束语，而是一个可以继续接收老板指令、恢复 `.founder/` 并承担唯一全局责任的独立 Codex 项目任务。
+FounderOS 默认在当前长期主管对话继续。独立任务是用户显式选择的承载方式，不是正式启动或接管的默认完成条件。一个项目始终只有一个逻辑主管；runtime 对话轮换只更换承载，不复制主管身份或完整历史。
 
-对本 Skill 的执行型“从零启动项目”或“正式接管项目”调用，默认包含：canonical 状态进入 `OPERATING` 后，为该 canonical 项目根创建**恰好一个**独立总管任务并完成 Supervisor handoff。用户明确要求“留在当前对话”“不要创建新任务”、只做 Audit/Review/报告或保持只读时，不创建。已有健康的专用总管任务时只复用/展示它，不重复创建。
+只有当前用户请求明确授权创建独立主管任务时，才为 canonical 项目根创建**恰好一个**任务并完成 profile 对应的 handoff。用户说“留在当前对话”“不要创建新任务”、只做 Audit/Review/报告或保持只读时，不创建。已有健康专用主管任务时只复用/展示，不重复创建。
 
 这项授权只覆盖 Codex 内创建一个本地项目任务、设置标题、发送交接消息和等待验收；不扩大项目写入、联网、发布、购买、生产或其他外部权限。不要把普通项目管理授权解释成任意创建后台任务。
 
 ## 触发条件
 
-只有满足下列任一路径才进入 provisioning：
+只有同时满足以下条件才进入 provisioning：
 
-- `NEW_PROJECT` 已执行 `confirm-canonical`，Strategy 精确为 `bootstrapped + OPERATING`；
-- Brownfield 已执行 `confirm-adoption`，精确为 `ADOPTED + OPERATING`；
-- 有效 FounderOS 项目已经 `OPERATING`，但 Founder 现在明确要求补建一个独立总管任务。
+- Founder 对当前动作给出明确创建/轮换授权；
+- Project Brief、项目地图、紧凑 STATUS 与活动任务可形成有界 handoff；
+- `V4_LIGHT` 没有活动重叠写入，或 `V4_GOVERNED` 精确为 `bootstrapped + OPERATING` / `ADOPTED + OPERATING` 且所有 fence current；
+- runtime 能精确绑定一个 saved project/local 目标并完成唯一性检查。
 
 以下情况一律不创建：
 
@@ -40,7 +42,13 @@ FounderOS 的正式启动结果不是一段结束语，而是一个可以继续�
 - 已有另一个健康专用总管任务；
 - 用户明确取消、暂停或禁止新任务。
 
-Provisioning 是 Bootstrap/Adoption 的交付 Gate。触发条件满足且能力可用时，不得只输出“已接管/已运营”的老板摘要后结束。
+在 V4_GOVERNED 旧协议中，“Provisioning 是 Bootstrap/Adoption 的交付 Gate”；因此不得只输出“已接管/已运营”。V4_LIGHT 不继承自动创建行为：Bootstrap/Adoption 本身不授权新主管任务；反过来，create 返回 ID 也不等于已完成交接。
+
+## Profile Router
+
+- `V4_LIGHT`：不初始化 Strategy、ACTIVE_SUPERVISOR、写锁或 THREADS。只交接已确认 Brief、项目地图、紧凑 STATUS、唯一 TASK_THREADS、`last_indexed_commit` 和活动任务包；旧主管停止新派工，新任务按真实 thread/project/host identity 精确 ACK 后才继续。
+- `V4_GOVERNED`：保留下文的 Single Active Supervisor、ownership、fencing、Strategy、Registry、Skill/Memory 安全与 fail-closed handoff。
+- 现有 governed 项目不得用 light 绕开不一致；现有 light 项目不得因本动作被自动迁移为 governed。
 
 ## 唯一性与项目范围
 
@@ -48,7 +56,7 @@ Provisioning 是 Bootstrap/Adoption 的交付 Gate。触发条件满足且能力
 
 目标 logical ID 使用 `FOS-MANAGER-` 前缀并包含 project binding 与本次真实 Thread identity 的有界派生值。后续因 Context Guard 轮换 Main 时仍沿用该角色前缀，但产生新的 fencing epoch；旧 Main 不再是 ACTIVE。
 
-Portfolio / workspace 根默认只创建一个总管任务。发现多个子项目、子仓库或产品线不自动创建多个 Main；它们由 Portfolio Main 统一管理。只有 Founder 对某个 canonical 子项目另行明确要求独立总管时，才按那个子项目自己的 Single Active Supervisor 执行一次 provisioning。
+一旦 Founder 明确授权 provisioning，Portfolio / workspace 根默认只创建一个总管任务，并保持一个逻辑主管。发现多个子项目、子仓库或产品线不自动创建多个 Main；只有 Founder 对某个 canonical 子项目另行明确要求时，才执行一次 provisioning。
 
 创建前先按以下顺序去重：
 
@@ -75,6 +83,17 @@ Portfolio / workspace 根默认只创建一个总管任务。发现多个子项�
 
 ## 创建与交接顺序
 
+### V4_LIGHT
+
+1. 旧主管停止新派工并协调活动 writer；从 Brief、项目地图、紧凑 STATUS、TASK_THREADS、当前 HEAD 和活动任务包生成有界 handoff，不读取/复制完整聊天。
+2. 完成 runtime project/thread inventory 和唯一性检查。
+3. 创建一个 exact project/local 任务；初始 Prompt 只允许核对 project root/profile/HEAD 和等待 `HANDOFF_READY=1`，禁止写项目、派 Agent 或再创建主管。
+4. 保存真实 `threadId + hostId`，设置可读标题；失败只标命名能力 PARTIAL。
+5. 发送 exact project root、profile、HEAD、handoff artifact/hash 与真实 runtime identity；绝不发送凭据、旧 token 或大段历史。
+6. 新任务核对并返回 `MANAGER_TASK_READY` 与 exact markers；旧主管用 compact wait/list 验收。只有 ACK 后新任务继续，旧任务停止派工。
+
+### V4_GOVERNED
+
 按以下顺序执行，不把 create 当作 handoff：
 
 1. 旧 Main 确认 Strategy/canonical state 已 `OPERATING`，协调活动 writer，checkpoint 全部 source fingerprints，并对旧 Main 做 Context Guard；非 `CLEAR` 时只使用 canonical evidence，不读取旧 body。
@@ -86,13 +105,26 @@ Portfolio / workspace 根默认只创建一个总管任务。发现多个子项�
 7. 新任务核对 handoff/source fingerprints，按 CAS 接受 handoff并生成自己的新 token/epoch；然后按 FounderOS 恢复顺序读取 Strategy、五账本、可选 Memory summary/index（不默认读 archive）、AGENTS、可选 SKILLS/LOCK、THREADS 和 Workstreams。若 Memory transaction lock、schema、hash 或 Supervisor fingerprint 不一致，先进入 recovery，不以旧摘要继续路由。
 8. 新任务运行 Supervisor inspect/verify 与 Strategy inspect，确认自身是 exact `ACTIVE + OPERATING`；在 `STATUS.md` 的 Evidence/Artifacts 中记录总管任务 identity、标题、接管时间和验证状态，checkpoint 后释放写锁。
 9. 新任务返回 `MANAGER_TASK_READY`。旧任务用 compact wait/list 与项目 control inspect 验收；必要时 bounded read 最近状态，但不读取整个历史。
-10. 只有验收通过，旧任务才向 Founder 报告创建成功并提供可点击任务入口；第一项项目工作由新 Main 继续，不在旧 Main 形成两个并行总管。
+10. 只有验收通过，旧任务才向 Founder 报告创建成功并提供可点击任务入口；第一项项目工作由新 Main 继续，不形成两个并行主管。
 
 如果 runtime 支持向既有任务发送消息，handoff offer 完成后必须显式唤醒新任务；不要假设异步初始 turn 会碰巧看到稍后写入的 handoff。
 
 ## 新任务初始 Prompt
 
-初始 Prompt 必须包含最小而完整的控制语义：
+`V4_LIGHT` 初始 Prompt 使用最小交接语义：
+
+```text
+使用 $founder-os。
+WORKFLOW_PROFILE=V4_LIGHT
+MANAGER_TASK_BOOTSTRAP=1
+PROJECT_ROOT=<canonical-project-root>
+
+你是同一逻辑主管的新 runtime 承载。先只读核对 Brief、项目地图、紧凑 STATUS、HEAD 和活动任务包；
+在收到 HANDOFF_READY=1 前不要写项目、不要派发 Agent。禁止再次创建另一个总管任务。
+核对后返回 MANAGER_TASK_READY 与 exact project/profile/HEAD markers。
+```
+
+`V4_GOVERNED` 初始 Prompt 必须包含最小而完整的控制语义：
 
 ```text
 使用 $founder-os。
@@ -110,9 +142,11 @@ follow-up 再传本次 create 返回的 opaque IDs、target logical ID 与 expec
 
 ## 验收标准
 
-只有以下条件全部满足才叫“总管任务已开启”：
+所有 profile 都要求真实非空 `threadId + hostId`、exact saved project/local binding、唯一逻辑主管、`MANAGER_TASK_READY`、旧承载停止派工和真实入口。只有条件全部满足才叫“主管任务已开启”。
 
-- create 返回真实非空 `threadId + hostId`，runtime inventory 能按 exact ID 找到它；
+`V4_GOVERNED` 还要求：
+
+- runtime inventory 能按 exact ID 找到它；
 - 任务绑定 exact saved project/local root，不是 worktree/projectless；
 - `ACTIVE_SUPERVISOR.json` 的 current logical/runtime identity 与新任务一致，handoff 不再 pending；
 - 旧 Main token/epoch 已失效，项目仍只有一个 ACTIVE；
@@ -124,10 +158,10 @@ follow-up 再传本次 create 返回的 opaque IDs、target logical ID 与 expec
 
 ## 失败恢复
 
-- create 失败：旧 Main 保持 ACTIVE；报告 `MANAGER_TASK_CREATE_FAILED`，不声称已开启。
+- create 失败：旧主管继续承担原逻辑身份；governed 保持旧 Main ACTIVE。报告 `MANAGER_TASK_CREATE_FAILED`，不声称已开启。
 - create 返回不确定：先 list/reconcile exact project 和 reservation marker；禁止盲目重试。
 - create 成功、handoff 尚未 offered：新任务保持只读候选；旧 Main 可修复后继续，不创建第二个。
-- handoff offered、follow-up/wait 失败：旧 Main 已 fenced；把新任务视为 pending successor，从 Supervisor handoff 和 exact runtime identity 恢复，禁止旧 Main继续项目写入。
+- governed handoff offered、follow-up/wait 失败：旧 Main 已 fenced；把新任务视为 pending successor，从 Supervisor handoff 和 exact runtime identity 恢复，禁止旧 Main继续项目写入。light 在 ACK 前仍由旧承载协调，但不得启动重叠 writer。
 - 新任务 claim 失败或 fingerprint drift：进入 RECOVERY，保留真实任务与证据，不重跑 Bootstrap/Adoption。
 - title 失败：任务仍可用，标记命名能力 PARTIAL 后用真实 ID 交付。
 - create/list/send/wait 能力缺失，或项目没有 exact saved target：记录 `MANAGER_TASK_CAPABILITY_UNAVAILABLE` 或 `MANAGER_TASK_PROJECT_TARGET_UNAVAILABLE`；保留当前 ACTIVE，并给 Founder 一个可复制的最小启动 Prompt。不得伪造 ID、声称任务已开或改用 UI 自动点击。

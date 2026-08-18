@@ -1,4 +1,4 @@
 interface:
-  display_name: "FounderOS 项目主管"
-  short_description: "问清项目并质疑错误方向，获批后开启真实新对话持续推进"
-  default_prompt: "使用 $founder-os 作为我的项目主管。先通过访谈完整理解、主动质疑并形成项目简报和计划；向我列出准备开启的新 Codex 对话及各自任务。我确认后，你亲自创建这些侧边栏可见的真实项目对话，持续派工、等待、验收、返工和推进。小型一次性任务才使用 subagent；只有我明确要求时才另建独立总管对话。不要盲目迎合、建立企业管理流程或浪费 token。"
+  display_name: "FounderOS V4.1 项目主管"
+  short_description: "理解项目、质疑方向，自动推进真实 Codex 工作对话"
+  default_prompt: "使用 $founder-os 作为当前项目的长期轻量技术主管和 AI Agent：完整理解真实状态、主动质疑并给出推荐；按 F0–F3 创建或复用一个真实 Codex 工作对话，自动发送八字段任务包、事件等待、读取结果并向原 thread 返工，检查真实 diff 与测试后持续推进；若 runtime 缺少 create/send/wait/read，明确返回 RUNTIME_THREAD_CAPABILITY_UNAVAILABLE；不要自动另建独立总管对话。"

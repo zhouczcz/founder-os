@@ -1,6 +1,6 @@
 # FounderOS Supervisor Execution Firewall
 
-本文件是兼容旧项目和高保障场景的 **高级协议**，不是普通项目的默认入口。只有高风险实现、多写入者冲突、正式 Artifact ownership 审计、生产/安全工作，或旧项目已经依赖 Supervisor Execution Firewall 时才完整读取。普通项目使用 `SKILL.md` 的七字段轻量委派，不得在每个重要任务或业务写入前机械加载本文件。独立研究、系统技术调研和正式测试属于 Specialist Execution，但不因此启用整套高级治理。它补充现有 Supervisor、Delegation、Thread、Capability、Adoption、Integration 与 Organization Memory 合同，不建立第二套权限系统。
+本文件是兼容旧项目和高保障场景的 **高级协议**，不是普通项目的默认入口。只有高风险实现、多写入者冲突、正式 Artifact ownership 审计、生产/安全工作，或旧项目已经依赖 Supervisor Execution Firewall 时才完整读取。V4.0 兼容文本曾写为“普通项目使用 `SKILL.md` 的七字段轻量委派”；V4.1 普通路径改用短 runtime 的八字段真实 Thread 任务包，仍不得在每个重要任务或业务写入前机械加载本文件。独立研究、系统技术调研和正式测试属于 Specialist Execution，但不因此启用整套高级治理。它补充现有 Supervisor、Delegation、Thread、Capability、Adoption、Integration 与 Organization Memory 合同，不建立第二套权限系统。
 
 ## 目录
 

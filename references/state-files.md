@@ -1,13 +1,15 @@
-# FounderOS 项目账本规范
+# FounderOS V4.1 项目状态规范
 
-在创建、修复或大幅调整 `.founder/` 文件前读取本文件。模板中的字段是最小要求；可以增加项目特有字段，但不要保留方括号占位符或虚构信息。
+只在创建、修复或大幅调整 `.founder/`，或兼容旧状态时读取本文件。`V4_LIGHT` 普通请求只按 SKILL 与轻量 runtime 读取紧凑 PROJECT/STATUS/TASK_THREADS，不为每轮操作加载本文。模板字段不得保留占位符或虚构信息。
 
 ## 目录
 
 - [目录与职责](#目录与职责)
+- [V4.1 Profile Router](#v41-profile-router)
 - [PROJECT.md](#founderprojectmd)
 - [ROADMAP.md](#founderroadmapmd)
 - [DECISIONS.md](#founderdecisionsmd)
+- [TASK_THREADS.md](#foundertask_threadsmd)
 - [AGENTS.md](#founderagentsmd)
 - [STATUS.md](#founderstatusmd)
 - [ACTIVE_SUPERVISOR.json](#founderactive_supervisorjson)
@@ -21,17 +23,43 @@
 - [创建与修复规则](#创建与修复规则)
 - [长项目归档](#长项目归档)
 
+## V4.1 Profile Router
+
+- `V4_LIGHT`（默认）：稳定层优先 `.founder/PROJECT.md`，动态层优先 `.founder/STATUS.md`，真实任务对话只用 `.founder/TASK_THREADS.md`；PROJECT/STATUS 记录精确 `workflow_profile=V4_LIGHT` 和 `last_indexed_commit`，STATUS 目标不超过 4 KiB。DECISIONS 只在重大决定时使用，不新建重复 AGENTS/THREADS 映射；Strategy、Supervisor、锁、Registry、Skill/Memory、Workstream/Integration 不初始化。
+- `V4_GOVERNED`：使用本文完整五账本、Single Active Supervisor、Strategy、锁、Registry 与高级事务规则。
+- `V4_LIGHT + 五账本存在 + 无 STRATEGY` 是正常兼容状态，不得返回 `LEGACY_MIGRATION_REQUIRED`。已有 V2.3 文件全部保留；一次轻量接管压缩 PROJECT/STATUS，并在真实派工时维护唯一 TASK_THREADS 映射；不删除历史、不每轮全读。
+- 状态只是索引。代码、Git、测试或 runtime 证据与状态冲突时，以当前可验证证据为准并有界协调。
+
+轻量最小投影：
+
+```markdown
+# Project
+- workflow_profile=V4_LIGHT
+- last_indexed_commit=<current HEAD or UNKNOWN>
+
+# Status
+- workflow_profile=V4_LIGHT
+- last_indexed_commit=<current HEAD or UNKNOWN>
+- Current phase: ...
+
+# Task Threads
+| task_id | thread_id | project_id | host_id | objective | write_scope | status | last_result |
+```
+
+只有 accepted、blocked、计划实质变化或架构变化才更新；工具调用、无变化 wait 和普通检查不写。HEAD 未变化不重新扫描；变化时先读取 changed paths 和相关 diff。
+
 ## 目录与职责
 
 ```text
 .founder/
-├── PROJECT.md                 # 稳定的项目契约（正式 Bootstrap 后）
-├── ROADMAP.md                 # 阶段、Workstream 与可执行路线（正式 Bootstrap 后）
-├── DECISIONS.md               # 追加式决策记录（正式 Bootstrap 后）
-├── AGENTS.md                  # 实际 Agent、层级和委派登记册（正式 Bootstrap 后）
-├── STATUS.md                  # 最新接手快照（正式 Bootstrap 后）
+├── PROJECT.md                 # 稳定项目契约；light 首次批准写入后可单独存在
+├── STATUS.md                  # 紧凑动态索引；light 目标 ≤4 KiB
+├── TASK_THREADS.md            # light 唯一 task → 真实 Codex thread 映射
+├── ROADMAP.md                 # 可选计划/里程碑
+├── DECISIONS.md               # 可选重大决定与 override
+├── AGENTS.md                  # 仅实际创建 Agent 时记录
 ├── ACTIVE_SUPERVISOR.json     # 唯一 ACTIVE 的持久控制记录
-├── STRATEGY.json              # 可选/新项目默认：方向、Gate、Autonomy 控制面
+├── STRATEGY.json              # 可选；V4_GOVERNED 方向/Gate/Autonomy 控制面
 ├── THREADS.json               # 可选：真实 Thread binding 控制登记册
 ├── memory/MEMORY.json         # 可选：项目内 Organization Memory 机器权威
 ├── memory/archive/            # 可选：真实压缩后才有的不可变历史分段
@@ -40,19 +68,20 @@
 └── adoption/REPORT.md         # 可选：Existing Project 详细 Adoption Baseline/Review
 ```
 
-执行型回合可临时创建 `.founder/.write-lock.json` 作为项目级单写入租约；Strategy/Thread/Skill/Memory 控制事务还可短暂使用各自的受控事务锁。它们只能由正确持有者在状态协调完成后清理。`ACTIVE_SUPERVISOR.json` 与项目写锁职责不同：前者长期协调唯一总管，后者保护一次写事务。`STRATEGY.json`、`THREADS.json`、`memory/`、`workstreams/`、`integrations/`、`SKILLS.md`、`SKILL_LOCK.json`、`adoption/REPORT.md`、`backups/` 与 `history/` 不属于五份 canonical 业务账本；除新项目的 pre-bootstrap Strategy 和获写授权后的 pre-adoption 控制状态外，均只在实际需要时创建。
+`V4_GOVERNED` 执行型回合可临时创建 `.founder/.write-lock.json`，并使用 Strategy/Thread/Skill/Memory 事务锁；它们只能由正确持有者协调清理。`V4_LIGHT` 不创建这些锁。高级可选结构不属于轻量必读状态，也不得因文件存在而自动启用。
 
-新项目在正式 Bootstrap 之前，`.founder/` 只有 `ACTIVE_SUPERVISOR.json`、有效的 `STRATEGY.json` 和当前事务锁是合法状态，称为 **pre-bootstrap Strategy-only**。不得因 `PROJECT.md` 等五账本尚未创建就判定项目损坏；必须先恢复 Direction/Gate，只有 `BOOTSTRAP_AUTHORIZED` 才能一次建立真实的五账本。反过来，五账本只存在一部分也不是新项目，应进入恢复而非覆盖或重新初始化。
+`V4_GOVERNED` 新项目在正式 Bootstrap 前可处于 pre-bootstrap Strategy-only；其原有 Gate 语义继续有效。`V4_LIGHT` 新项目在 Brief/计划确认前零状态写，确认后按需建立 PROJECT/STATUS，首次真实派工得到 ID 后建立 TASK_THREADS；不要求一次建立五账本。任何 profile 都不得覆盖未知用户文件。
 
-无 `.founder/` 的 Existing Project 首次分析保持 `ADOPTION_READ_ONLY`，项目内不得创建上述任何文件。只有完成只读 baseline、当前请求允许正式接管且 ACTIVE fencing 可取得时，才可创建 **pre-adoption control-only** 状态：`ACTIVE_SUPERVISOR.json + STRATEGY.json + 当前事务锁`，其中 Adoption 为 `BASELINE_READY` 且 Gate 只允许后补 canonical state。它不叫 New Bootstrap；五账本协调后进入 `ADOPTED + OPERATING`。严格只读请求永远不创建 pre-adoption 状态。
+无 `.founder/` 的 Existing Project 首次分析保持只读。light 获写授权后只按需建立 PROJECT/STATUS/TASK_THREADS；governed 才可创建 pre-adoption control-only 并执行旧 `ADOPTED + OPERATING` 流程。严格只读请求在两种 profile 下都零状态写。
 
 所有文件使用清晰的 Markdown、绝对日期（`YYYY-MM-DD`）和显式状态。需要时间时包含时区。未知内容写“未知/待验证”，不要猜成事实。
 
-字段权威归属如下：
+`V4_GOVERNED` 的字段权威归属如下；light 未创建的文件没有伪权威：
 
 - `PROJECT.md`：目标、用户、范围、资源和约束；
 - `ROADMAP.md`：阶段、里程碑、优先级和行动状态；
 - `DECISIONS.md`：重要决定、理由和取代关系；
+- `TASK_THREADS.md`：light 的 task/thread/project/host、目标、写 scope、状态与最后结果；不得与 AGENTS/THREADS 双写同一轻量映射；
 - `AGENTS.md`：Agent 生命周期、任务状态和写入所有权；
 - `STATUS.md`：从前四份账本派生的最新摘要，不作为冲突时的最终权威。
 - `ACTIVE_SUPERVISOR.json`：控制谁能修改上述 canonical 状态；不承载产品/项目事实。
@@ -64,7 +93,7 @@
 - `SKILL_LOCK.json`：可选精确来源、版本、hash、批准与 binding 权威；只有实际启用 Registry 时与投影协调。
 - `memory/MEMORY.json`：可选项目内历史 Outcome、派生 Performance、Decision Outcome、Lesson 和 Routing 权威；不覆盖当前五账本、Strategy、Thread 或 Skill Trust。
 
-每次跨账本更新生成一个不会依赖本地递增计数的协调版本，例如 `R-20260811T092315Z-a1b2c3`（UTC 时间加短随机/任务标识）。先更新发生变化的权威账本，再最后更新 `STATUS.md`；未变化账本保留原 `Last revision`。`STATUS.md` 用 `Source revisions` 保存四份权威账本的精确版本映射，并用 `Reconciled revision` 标记本轮完整协调；Supervisor control record/lock 还为四账本和 STATUS 保存完整文件 SHA-256，内容变化不能靠保留旧 revision 绕过。如果 `STRATEGY.json` 存在，Supervisor fingerprints 同时保存完整 `STRATEGY_REVISION + STRATEGY_SHA256` 和语义 `STRATEGY_CONTEXT_REVISION + STRATEGY_CONTEXT_SHA256`：前者捕获任何控制变化，后者只在 selected strategy/Autonomy 语义变化时轮换并供 Worker stale 检测。Skill Registry/Lock 存在时另保存 `SKILL_REGISTRY_REVISION/SHA256` 与 `SKILL_LOCK_REVISION/SHA256`；Memory 存在时另保存 `MEMORY_REVISION + MEMORY_SHA256`。这些可选控制不加入旧四源权威映射，Worker 只保存相关 task Memory/Skill baseline。另记录 `Supervisor revision`，但不把控制记录加入旧四源权威映射。恢复时逐项比较 revision + hash，任何不一致都先检查和协调，不直接相信旧快照。旧项目没有版本字段或 Supervisor/Strategy/Skill/Memory control 时不视为损坏；不存在时不得添加伪 `ABSENT` key 破坏旧 exact baseline。
+`V4_GOVERNED` 每次跨账本更新生成协调版本，先更新变化的权威账本，最后更新 STATUS 与 source revisions；Supervisor/Strategy/Skill/Memory 指纹继续按原 fail-closed 规则核对。`V4_LIGHT` 把一次必要 PROJECT/STATUS 协调视为一个状态事务，不要求缺失账本、revision 或高级 control。旧项目缺现代字段不视为损坏，不得添加伪 `ABSENT` key。
 
 ## `.founder/PROJECT.md`
 
@@ -271,6 +300,24 @@ L3 使用同样的 `Decision ID / Proposal ID / Level / Rationale / Assumptions 
 
 Founder 只回答“A”或候选 ID 时已是有效选择，不得要求其解释理由。此时 `Rationale` 由 FounderOS 如实记录“Founder selected A”、已呈现的推荐依据与仍存风险，不伪造 Founder 的主观动机。
 
+## `.founder/TASK_THREADS.md`
+
+这是 `V4_LIGHT` 唯一的任务—真实 Codex 对话映射；不得再把同一轻量映射复制到 `AGENTS.md` 或 `THREADS.json`。
+
+```markdown
+# Task Threads
+
+| task_id | thread_id | project_id | host_id | objective | write_scope | status | last_result |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| TASK-... | real runtime ID | real project ID | real host ID | bounded goal | exact paths | working / accepted / blocked | compact result or artifact ref |
+```
+
+- 只有 `create_thread` 返回非空真实 ID 后才新增；不得预留、猜测或角色扮演 ID。
+- 同一 `task_id` 的追问与最多两轮返工必须保持原 `thread_id/project_id/host_id`；ID 变化视为新任务或显式 handoff，不能静默替换。
+- 写入 scope 相同或相互嵌套的两个 `working` 记录不得并行；确需并行同仓修改时记录独立 branch/worktree 和后续集成边界。
+- 无变化 wait、普通工具调用和重复读取不得改写本文件。只在真实 ID 首次绑定、accepted、blocked 或显式计划改变时原子更新。
+- 表格保持紧凑；大结果只保存路径、hash 和摘要。真实代码、diff、测试与 runtime 证据冲突时，以后者为准并修正索引。
+
 ## `.founder/AGENTS.md`
 
 ```markdown
@@ -328,6 +375,8 @@ Founder 只回答“A”或候选 ID 时已是有效选择，不得要求其解�
 把实际运行状态与项目处置分开：运行状态使用 `dispatched`、`running`、`returned`、`interrupted`、`failed`、`unknown`；项目处置使用 `pending-review`、`accepted`、`changes-requested`、`blocked`、`cancelled`、`superseded`、`closed`。保留历史；从活动表移除时写入真实运行结果和最终处置。`timeout` 只是观察结果，不是终态；确认 Agent 已停止后才能释放其写入所有权。只把真实创建的 Agent 写入 Agent 清单，预留项不冒充已创建 Agent；FounderOS 自己执行写 `executor: FounderOS`，不得伪造专业 Agent。
 
 ## `.founder/STATUS.md`
+
+light 使用本文件开头的紧凑投影并保持 ≤4 KiB。下列完整模板只用于 governed、复杂 Adoption 或已有兼容状态；没有相应事实时不要填充空章节。
 
 ```markdown
 # Status
@@ -421,7 +470,7 @@ Founder 只回答“A”或候选 ID 时已是有效选择，不得要求其解�
 - Artifact/path — revision or hash — verification method/command — environment — verified at
 ```
 
-这是新对话最快的恢复入口，但不能替代其他账本。它的阶段、里程碑、Workstream 和 Agent 列表分别派生自 `ROADMAP.md` 与 `AGENTS.md`，Supervisor revision 派生自控制记录。每轮刷新时间和发生变化的内容。已完成项必须带可定位证据；Adoption 后的 maturity/build/test/release/health 必须区分事实、推断和 UNKNOWN，技术栈旧不能单独产生 RED。若没有 Agent、Workstream、阻塞或待决事项，显式写 `None`，避免让接手者猜测。上面的 Autonomous 报告块只在存在待报告的 `autonomous_with_report` L2 Decision 时保留并填真实值；否则省略整个块。helper 只有在六字段与当前 canonical proposal/decision 精确匹配，并提供真实老板摘要 `delivery_ref` 时才清除 pending report。
+STATUS 是新对话最快恢复入口，但不能覆盖真实代码/测试。只在 accepted、blocked、计划/架构变化时刷新发生变化的内容；无变化回合不更新时间戳。governed 的阶段/Agent/Workstream 从相应权威账本派生；事实区分 CONFIRMED/INFERRED/UNKNOWN。Autonomous 报告块只在真实 pending report 时保留。
 
 ## `.founder/ACTIVE_SUPERVISOR.json`
 
@@ -439,7 +488,7 @@ Founder 只回答“A”或候选 ID 时已是有效选择，不得要求其解�
 
 完整 Direction Clarity、Discovery、Strategic Gate、L0–L3、Autonomy 和运行中 Pivot 规则见 [founder-discovery.md](founder-discovery.md)。本文只规定文件边界：
 
-- 它是可选战略控制面，新项目执行型启动时默认创建；不是第六份 canonical 业务账本；
+- 它是 `V4_GOVERNED` 可选战略控制面；light 新项目不创建；不是第六份 canonical 业务账本；
 - 它保存 project binding、`project_phase`、Clarity、Discovery depth/candidates/recommendation、selected strategy、Gate/proposal、项目级 Autonomy、pre-bootstrap Discovery assignments、pending canonical Decision、STATE_SYNC、boss-report 义务、一次性 Founder authorization receipts，以及 L3 action 的 `approved/consumed` 状态与 execution reference；
 - 它不取代 `PROJECT.md` 中的正式目标/用户/约束，也不取代 `DECISIONS.md` 中的 L2/L3 历史；冲突时停止执行并由 ACTIVE 协调；
 - `strategy_revision + 完整文件 SHA-256` 是 Supervisor/handoff/recovery 指纹；`context_revision + context_sha256` 是 selected direction/Autonomy 的语义指纹，供 Thread baseline/stale sync 使用；
@@ -448,7 +497,7 @@ Founder 只回答“A”或候选 ID 时已是有效选择，不得要求其解�
 - Founder 选择/委托、Profile 调整与 L3 批准/拒绝引用按项目保存哈希 receipt，同一原始授权引用不能再次绑定；L3 canonical 批准在真实动作前以唯一 `execution_ref` 单向消费，消费后不能恢复为可用；
 - malformed JSON、wrong-project binding、symlink/junction/reparse、多硬链、指纹漂移或未知 `.strategy-state-lock.json` 一律 fail closed，保持锁并进入 RECOVERY；不手工删锁或覆盖文件。
 
-合法 pre-bootstrap Strategy 的 `project_phase=pre-bootstrap`，Gate 只能处于 `DIRECTION_CHECK_REQUIRED / DISCOVERY_ACTIVE / STRATEGIC_CHOICE_REQUIRED / BOOTSTRAP_AUTHORIZED`。Discovery 可以临时记录真实、只读的 Research subagent runtime ID；正式 Bootstrap 时必须迁入 `AGENTS.md` 历史。五账本已存在而 Strategy 缺失的旧项目，只读时不迁移；执行时在 ACTIVE fencing 内从 `PROJECT.md/DECISIONS.md` 推断已选方向，以默认 Autonomy 初始化 `LEGACY_INFERRED + OPERATING`，不重新 Bootstrap。
+合法 governed pre-bootstrap Strategy 的原 Gate 语义不变。五账本已存在而 Strategy 缺失时，只有明确 `V4_GOVERNED` 执行才在 ACTIVE fencing 内做 `LEGACY_INFERRED + OPERATING`；`V4_LIGHT` 正常继续并返回 `NOT_APPLICABLE_LIGHTWEIGHT`，不迁移。
 
 ## Existing Project Adoption 状态
 
@@ -459,7 +508,7 @@ Founder 只回答“A”或候选 ID 时已是有效选择，不得要求其解�
 - `adoption_status=BASELINE_READY` 只允许后补并验证五账本；不能派 candidate-bound 业务任务、创建 Persistent organization、安装/绑定 Skill 或进入 Integration。
 - 五账本中的 PROJECT 保存 exact `Project Origin / Project Lifecycle / Adoption Confidence / Adoption Baseline ID / Adoption Baseline SHA-256 / Behavior Preservation: true` markers；ROADMAP/DECISIONS/AGENTS/STATUS 按本文件的 Adoption 专用段落恢复当前现实，不伪造历史。
 - 全部协调后才可把 `project_phase` 变为 `bootstrapped`、`adoption_status=ADOPTED`、Gate=`OPERATING`。失败或证据/路径/锁冲突时在 Review/响应中报告 `BLOCKED`，保持现有持久化状态和 fail-closed fencing；不得把不可达的 `BLOCKED` 值写进当前 Strategy schema。
-- 有效 current `.founder/` 正常恢复；五账本齐全但缺现代 control 的旧 FounderOS 项目走 legacy migration；partial/damaged/non-Founder collision 走 Recovery。三者都不使用 Brownfield Adoption 覆盖原内容。
+- 有效 current `.founder/` 正常恢复；旧 FounderOS 项目在 light 下保留历史并压缩当前索引，在 governed 下才走 legacy control migration；partial/damaged/non-Founder collision 继续 Recovery。任何路径都不覆盖原内容。
 - 可选 `.founder/adoption/REPORT.md` 只保存详细 audit/baseline。严格只读 Adoption 不创建；简单项目不需要；它不替代 PROJECT baseline anchor、DECISIONS 历史或 STATUS 快照。
 
 ## 可选 `.founder/THREADS.json`
@@ -467,6 +516,7 @@ Founder 只回答“A”或候选 ID 时已是有效选择，不得要求其解�
 完整 schema、lifecycle、handoff 和恢复规则见 [thread-manager.md](thread-manager.md)。本文件只规定账本边界：
 
 - 它是 Thread 控制登记册，不是第六份 canonical 业务账本；
+- `V4_LIGHT` 不初始化、读取或迁移它；误调用旧 helper 返回 `NOT_APPLICABLE_LIGHTWEIGHT`；
 - `AGENTS.md` 管 Agent identity，`THREADS.json` 管可更换的 runtime binding；
 - 旧项目缺少它时仍是有效 V1 项目，不重新 Bootstrap；首次真实需要 Persistent Thread 才初始化；
 - 文件存在时，其 `registry_revision` 与完整 SHA-256 纳入 `ACTIVE_SUPERVISOR.json`/写锁 source fingerprints；正文同 revision 漂移也必须被检测；
@@ -556,7 +606,7 @@ Lock 顶层至少包含：
 
 ## 单写入租约
 
-执行型回合必须先满足 Single Active Supervisor fencing，再通过原子独占创建 `.founder/.write-lock.json` 或等价 compare-and-swap 取得租约。锁至少保存：规范化项目根、持有者任务/会话标识、UTC 创建时间、基线 `Reconciled revision`（pre-bootstrap 可为不适用）、当前存在的 canonical 文件 revision + SHA-256、Strategy 存在时的完整/语义 fingerprints、Skill control 存在时的 Registry/Lock revision + SHA-256、supervisor ID、activation token、Supervisor epoch revision 和 committed state SHA。无法证明独占或 fencing 时保持只读。
+本节只适用于 `V4_GOVERNED`。执行型 governed 回合必须先满足 Single Active Supervisor fencing，再原子取得 `.founder/.write-lock.json` 或等价 CAS。`V4_LIGHT` 不创建该锁，而是依赖一个任务一个 owner、禁止重叠写 scope 和真实 runtime 协调。
 
 发现已有锁时：
 
@@ -573,16 +623,16 @@ Lock 顶层至少包含：
 ## 创建与修复规则
 
 1. 创建前检查 `.founder/` 是否已有用户内容；不覆盖同名文件。
-2. 新项目先取得唯一 ACTIVE 和写锁，创建/inspect pre-bootstrap `STRATEGY.json`并完成 Direction Clarity/Strategic Gate；此时不创建五份空账本。只有 Gate 精确为 `BOOTSTRAP_AUTHORIZED` 时，才在同一 ACTIVE fencing 与 expected Strategy SHA 下一次建立五份互相一致的账本，用真实选定方向替换模板提示，迁入 Discovery Agent 历史，再用 `confirm-canonical` 进入 `OPERATING`。不创建空 Workstream/Thread Registry/Skill Registry/Skill Lock/Memory/归档。
+2. `V4_LIGHT` 新项目在 Brief/计划确认前零状态写；确认后只按需建立 PROJECT/STATUS 并记录 profile/commit，真实 thread ID 返回时建立唯一 TASK_THREADS。`V4_GOVERNED` 才执行 pre-bootstrap Strategy、ACTIVE、写锁、五账本和 `confirm-canonical` 原流程。两者都不创建空高级结构。
 3. 部分文件缺失时，从用户最新指令、现有账本和项目证据重建；把重建依据与不确定性记录在 `STATUS.md`，必要时追加决策。
 4. 文件损坏但存在时，把恢复作为一个事务：先列出所有将修改的账本，在 `.founder/backups/YYYYMMDD-HHMMSS/` 精确备份它们并写入含源路径、哈希（可用时）和目标版本的恢复清单；再保留所有可读片段并把全部替换文件暂存到同一文件系统，整体验证后依次替换权威账本，最后替换 `STATUS.md`。任一步失败就从清单回滚；若无法保证备份、目标准确、内容可保全或回滚，停止修复并请求用户决定。Bootstrap 不预创建空的 `backups/`。
-5. 每轮在持有正确 Supervisor fencing 和项目级单写入租约的前提下生成协调版本，先更新发生变化的 `PROJECT.md`、`ROADMAP.md`、`DECISIONS.md`、`AGENTS.md`，最后更新 `STATUS.md` 的派生快照、当前 Supervisor epoch revision 和 `Reconciled revision`；随后运行 guard `checkpoint` 同步 canonical、Strategy、Skill 与 Thread source fingerprints，并确认返回的 Supervisor revision 未改变。Strategy/Skill mutation 由各自 helper 协调 checkpoint；不得在 helper 成功后再用旧 expected SHA 继续写。协调完成且所有写入 Agent 终止后释放写锁。
+5. light 只在真实 thread 首次绑定、accepted、blocked 或计划/架构变化时做必要 TASK_THREADS/PROJECT/STATUS 事务；无变化 wait 零写入。governed 继续在正确 fencing/写锁下按权威账本 → STATUS → checkpoint 顺序协调，且不得复用旧 expected SHA。
 6. 更新后交叉检查当前阶段、里程碑、Agent 状态、写入所有权、阻塞和下一步是否一致。
 7. 不把计划写成完成，不把 Agent 自报完成写成已验收，不删除仍影响项目的风险和历史决定。
 
 ## 长项目归档
 
-仍需在每次接手时完整读取五份主账本。为避免它们无限增长，当关闭/取代记录开始妨碍快速恢复时，把较旧的关闭记录连同详细证据和过程分段移入 `.founder/history/`；不要预创建空归档目录。主账本只保留有界的活动/近期索引和一个覆盖全部历史分段的归档清单（ID 范围、日期范围、文件、哈希）。
+light 每次接手先读紧凑 STATUS，只有当前目标需要时读取相关账本/历史；governed recovery 才按其 profile 读取完整 control state。关闭记录妨碍恢复时可把旧细节分段移入 `.founder/history/`，但不预建空目录；主索引保持有界并保存可定位 hash。
 
 - `DECISIONS.md` 保留全部有效决策、近期已取代决策，以及旧决策分段的归档清单；取代关系必须能从主索引定位到具体分段。
 - `AGENTS.md` 保留全部活动任务、近期关闭任务，以及旧 Agent/任务分段的归档清单；每个分段保存最终结果和 Reviewer 发现表。
