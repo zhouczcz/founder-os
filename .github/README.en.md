@@ -196,18 +196,20 @@ founder-os/
 │   ├── capability-management.md    # Capability-first planning, gaps, and bindings
 │   ├── skill-governance.md         # Skill trust, approval, versions, and permissions
 │   ├── skill-registry.md           # Skill Registry / Lock and SKILL_SYNC
+│   ├── legacy-compat.md            # Legacy V4.0 seven-field packet and legacy governance vocabulary
 │   └── project-adoption.md         # Existing Project Adoption and maintenance mode
 └── scripts/
     ├── project_baseline.py         # Read-only Existing Project baseline collection
     ├── capability_planner.py       # Capability planning and coverage checks
-    ├── lightweight_runtime.py      # F0–F3, packet, budget, and circuit-breaker engine
+    ├── lightweight_runtime.py      # F0–F3, packet, budget, and circuit-breaker engine (regression-suite contract pin only; not called at runtime)
     ├── decision_state.py           # Strategy state and authorization guards
     ├── supervisor_guard.py         # Supervisor fencing and write-lock guards
     ├── thread_registry.py          # Thread Registry, CAS, and lifecycle guards
     ├── thread_context_guard.py     # Read-only transcript-size preflight and rotation decision
     ├── memory_registry.py          # Organization Memory, derived indexes, CAS, queries, and compaction
     ├── skill_registry.py           # Skill Registry / Lock and binding validation
-    └── validate_founder_os.py      # Full regression validation
+    ├── validation/                 # Regression test modules (common fixtures + domain-grouped tests)
+    └── validate_founder_os.py      # Full regression validation entry point
 ```
 
 ## Validation

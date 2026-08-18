@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 """Deterministic policy engine for the FounderOS V4.1 lightweight path.
 
+VALIDATION-ONLY: this module is exercised exclusively by the regression suite
+(`validate_founder_os.py`) to pin the lightweight-path contract described in
+`SKILL.md` and `references/lightweight-worker-runtime.md`.  The live supervisor
+follows those documents directly and never invokes this module; when editing
+the lightweight rules, update the documents and this engine together so the
+suite keeps them in sync.
+
 The engine plans and validates supervisor behavior.  It never creates an Agent,
 reads a repository, writes project state, or calls a model.  Runtime effects stay
 with the current Codex supervisor; callers feed back observed IDs and evidence.

@@ -111,6 +111,15 @@ ACCEPTANCE CRITERIA
 - 使用 Skill 时，Lock/installed hash/current binding 一致且没有未完成的 SKILL_SYNC 或冲突 Primary
 ```
 
+### 任务包去重硬规则
+
+十九字段是结构要求，不是重复授权。生成首次委派消息时必须同时满足：
+
+- 每条边界、约束或产品红线全包只声明一次，写在最相关的字段里；其他字段需要时用一句“受上文既有边界约束”指回，不逐字重抄。
+- 机器回显所需的 logical/runtime ID、thread_record/binding generation、Strategy context revision/SHA 和 canonical revision 集中放在包尾一个紧凑元数据块；正文字段不再重复罗列同一组标识。
+- 期望测试计数、hash 和验收数字只出现在 `ACCEPTANCE CRITERIA`；`CONTEXT` 只引用来源路径或 artifact，不预先粘贴同一组数字。
+- `INSPECTION_WRITE_PROTECTION` 与 `WRITE_SCOPE` 内容相同时，前者写 `same-as-WRITE_SCOPE`，不整段复制。
+
 返工与 follow-up 可引用原 assignment，不必机械重复不变字段；必须重新写明缺陷、仍有效的 `EXECUTION_CLASSIFICATION / ARTIFACT_OWNER / WRITE_SCOPE / INSPECTION_WRITE_PROTECTION / COMPLETION_BOUNDARY / STRATEGY_SCOPE / DEPENDENCIES`、修改内容和复验标准。创建替代 Agent 时使用完整十九字段。
 
 ## Execution Firewall 字段

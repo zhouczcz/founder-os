@@ -194,18 +194,20 @@ founder-os/
 │   ├── capability-management.md    # Capability-first 规划、差距与绑定
 │   ├── skill-governance.md         # Skill 信任、审批、版本与权限治理
 │   ├── skill-registry.md           # Skill Registry / Lock 与 SKILL_SYNC
+│   ├── legacy-compat.md            # 旧 V4.0 七字段任务包与旧版治理词汇解释
 │   └── project-adoption.md         # Existing Project Adoption 与维护模式
 └── scripts/
     ├── project_baseline.py         # 只读 Existing Project 基线采集
     ├── capability_planner.py       # Capability 规划与覆盖判断
-    ├── lightweight_runtime.py      # F0–F3、任务包、预算和熔断策略引擎
+    ├── lightweight_runtime.py      # F0–F3、任务包、预算和熔断策略引擎（仅供回归套件锁定轻量协议，运行时不调用）
     ├── decision_state.py           # 战略状态与授权守卫
     ├── supervisor_guard.py         # Supervisor fencing 与写锁守卫
     ├── thread_registry.py          # Thread Registry、CAS 与生命周期守卫
     ├── thread_context_guard.py     # 只读 transcript 体积预检与轮换决策
     ├── memory_registry.py          # Organization Memory、派生索引、CAS、查询与压缩
     ├── skill_registry.py           # Skill Registry / Lock 与绑定校验
-    └── validate_founder_os.py      # 完整回归验证
+    ├── validation/                 # 回归测试模块（common 设施 + 按领域拆分的测试）
+    └── validate_founder_os.py      # 完整回归验证入口
 ```
 
 ## 验证

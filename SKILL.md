@@ -93,22 +93,6 @@ Worker 固定返回 `RESULT / CHANGED_PATHS / VALIDATION_COMMANDS / VALIDATION_R
 
 侧边栏可见、用户拥有的真实项目任务仍按获批清单创建；计划文本保留“确认本计划即授权创建以下 N 个新 Codex 对话”与 `THREAD_PLAN_APPROVED` 证据。普通工作对话只读本短协议，不加载完整 [thread-manager.md](references/thread-manager.md)；只有恢复、轮换、归档或 `V4_GOVERNED` 才加载它。
 
-### V4.0 七字段兼容说明
-
-旧 V4 文档曾规定“默认委派合同只保留七项”；读取旧任务时仍能解释，但新 V4.1 首包必须转换为上面的八字段：
-
-```text
-ROLE
-TASK
-CONTEXT
-DELIVERABLES
-WRITE_SCOPE
-ACCEPTANCE CRITERIA
-ESCALATE WHEN
-```
-
-不要向 Agent 复制完整聊天；转换只补充项目上下文、所选方案和引用，不扩大 scope。
-
 ## 轻量项目认知与状态
 
 三层认知：稳定层保存目标、用户、技术栈、模块/接口/数据、规范、构建测试和约束；动态层保存 HEAD、里程碑、活动任务、近期 accepted 修改和风险；按需层只读当前请求文件、日志和测试。
@@ -142,17 +126,12 @@ ESCALATE WHEN
 - 多 Agent 复杂依赖：[workstreams.md](references/workstreams.md)
 - V4_GOVERNED 高风险/多写入者：[supervisor-execution.md](references/supervisor-execution.md) 与 [delegation.md](references/delegation.md)
 - 缺外部 Skill：[capability-management.md](references/capability-management.md)、[skill-registry.md](references/skill-registry.md)、[skill-governance.md](references/skill-governance.md)
-- 明确启用组织学习：[organization-memory.md](references/organization-memory.md) 与 [agent-performance.md](references/agent-performance.md)
+- 明确启用组织学习：[organization-memory.md](references/organization-memory.md) 与 [agent-performance.md](references/agent-performance.md)；显式启用仍以 `FIRST_ACCEPTED_TYPED_FACT` 为首次初始化边界
+- 旧 V4.0 七字段任务包或旧治理词汇（如 `一个 current primary Thread`、`generation+1 successor`）：[legacy-compat.md](references/legacy-compat.md)
 - 高影响战略/生产动作：[founder-discovery.md](references/founder-discovery.md)
 - 兼容旧五账本和高级锁格式：[state-files.md](references/state-files.md)
 
 不要因为 reference 存在就读取它。普通项目使用 SKILL 与短轻量 runtime；高级协议不是普通项目的默认入口。V4_GOVERNED 保留 Single Active Supervisor、ownership、fencing、Strategy、Registry、Skill/Memory 安全和多写入协调，继续 fail closed。
-
-### 旧版兼容语义（不激活高级流程）
-
-旧 Discovery 的“最终目标和可观察的成功结果”“最大的不确定性与风险”“当前最应该解决的下一件事”仍属于 Project Brief。选择执行载体时仍问“现有 Agent、主 Agent，还是新的专业真实 subagent 最合适”；必须能回答“为什么现在需要这个 Agent？”，不要创建闲置角色。除非用户明确说需要真人，招聘/找人表示真实 AI Agent；Actual Subagent Rule 的真实返回 ID 要求在 V4.1 由更严格的真实 Thread 规则承接。
-
-等待受托 Agent 返回时使用事件驱动等待；未达标优先要求原 Agent 在原 Thread 返工，只有 `accepted` 才能称为完成。简单工作不要过度复核；Reviewer 不直接改写项目方向。旧高级状态中的“恢复状态”、`Reconciled revision`、`Source revisions`、`Single Active Supervisor Rule`、`ACTIVE / ADVISOR / REVIEWER / RECOVERY`、`activation_token`、`一个 current primary Thread` 和“正在工作的 Workstream / Lead / Agent”只在 governed 恢复时解释。显式组织学习仍以 `FIRST_ACCEPTED_TYPED_FACT` 为首次初始化边界；Context Size Guard 轮换仍建立 `generation+1 successor`。旧指令“立即进入 PROJECT BOOTSTRAP”和“在同一轮开始执行第一项最高优先级工作”分别解释为开始 Discovery，以及仅在获批后开工。
 
 ## 向用户汇报
 
