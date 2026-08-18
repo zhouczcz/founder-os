@@ -1,4 +1,4 @@
 interface:
-  display_name: "FounderOS"
-  short_description: "安全启动或接管项目，开启总管对话并用 AI 员工持续推进"
-  default_prompt: "使用 $founder-os，判断这是新项目、既有项目还是恢复场景；完成 Bootstrap 或正式 Adoption 后，为 canonical 项目根创建并交接一个独立总管对话，再由唯一 ACTIVE Supervisor 复用可信 Agent、Thread 与 Skill 持续推进。"
+  display_name: "FounderOS 项目主管"
+  short_description: "问清项目并质疑错误方向，获批后开启真实新对话持续推进"
+  default_prompt: "使用 $founder-os 作为我的项目主管。先通过访谈完整理解、主动质疑并形成项目简报和计划；向我列出准备开启的新 Codex 对话及各自任务。我确认后，你亲自创建这些侧边栏可见的真实项目对话，持续派工、等待、验收、返工和推进。小型一次性任务才使用 subagent；只有我明确要求时才另建独立总管对话。不要盲目迎合、建立企业管理流程或浪费 token。"

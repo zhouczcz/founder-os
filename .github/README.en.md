@@ -2,81 +2,80 @@
 
 [简体中文](README.md) | **English**
 
-> Turn an ambiguous goal into an executable new project—or safely adopt an existing, completed, or shipped project as a maintainable long-running system.
+> Understand the whole project, challenge bad directions, then open real Codex tasks to deliver it.
 
-**FounderOS** is a project lead / AI Chief of Staff Skill for Codex. It can start products, companies, games, apps, websites, and other multi-stage projects from scratch, or adopt active, completed, and shipped projects under a **preserve before improve** policy. It is especially useful for founders who are new to the domain and only want to provide the goal, key constraints, and major decisions.
+**FounderOS** is a Codex project supervisor for solo developers. It interviews the user, challenges the direction, and produces a plan. After the user approves the plan and exact task list, the supervisor opens sidebar-visible Codex tasks just as the user could, assigns work, waits, inspects results, requests revisions, and keeps the project moving. Small one-off work uses subagents instead.
 
-FounderOS is not a standalone SaaS product, nor does it claim to run a company autonomously outside Codex. Within the authorization, tools, and permissions available in the current runtime, it acts as the project's sole active lead: clarifying direction, planning stages, delegating to real AI agents when needed, reviewing results, maintaining project state, and reserving major direction changes, high-cost actions, irreversible operations, and external commitments for the Founder.
+“Supervisor,” “employees,” and “hiring” are explanatory metaphors, not an enterprise-management workflow. FounderOS uses lightweight project state by default. Its older high-assurance controls are loaded only for high-risk, multi-writer, production, or formal-audit work. The user owns the idea and major decisions; the supervisor owns independent judgment, planning, coordination, and acceptance.
 
 ## The problem it solves
 
-Long-running projects often fail not because they lack one good answer, but because:
+Solo projects often fail not because the developer cannot code, but because:
 
-- implementation begins before an ambiguous starting point is resolved;
-- users who do not know the terminology are forced to make every professional choice themselves;
-- multiple agents work independently without a clear owner, dependency model, or shared acceptance process;
-- new conversations cannot restore project context, causing repeated research or overwritten work;
-- ordinary implementation choices and major strategic decisions are not clearly separated;
-- agent output is treated as a final conclusion without review.
+- AI starts generating or implementing before the idea is understood;
+- the user has no complete plan and must keep saying “continue”;
+- a compliant assistant follows a bad assumption instead of challenging it;
+- several agents lack one goal, dependency model, and acceptance owner;
+- the user still has to create, switch between, and chase every work conversation;
+- bookkeeping, polling, and repeated context cost more than project work;
+- a new conversation cannot restore the project from a compact state.
 
-FounderOS turns these failure modes into a managed project loop with strategic gates, persistent ledgers, explicit delegation, and integration review.
+FounderOS turns these failures into a lightweight loop: interview → challenge → confirm the brief → approve the plan and task list → supervisor-created Codex tasks → acceptance and correction.
 
 ## Core capabilities
 
 | Capability | Purpose |
 | --- | --- |
-| Founder Discovery | Runs bounded discovery when several materially different directions remain, producing comparable candidates and one explicit recommendation |
-| Direction Clarity + Strategic Gate | Bootstraps only after the direction is clear; major changes become auditable choices instead of bypassing the gate with a generic “keep going” |
-| L0–L3 impact classification | Allows ordinary implementation and tactical choices to be handled autonomously; applies project authorization to strategic choices; always requires explicit approval for high-impact executive actions |
-| Project-level Autonomy Profile | Records how much autonomy FounderOS has at the implementation, tactical, strategic, and executive levels |
-| Existing Project Adoption | Performs read-only detection and baseline reconstruction first, then adopts active, completed, or shipped projects only after authorization; stable behavior is preserved by default |
-| Persistent project ledgers | Stores goals, roadmap, decisions, agents, and current status in `.founder/` so a new conversation can restore the project |
-| Dedicated manager task | After Bootstrap or formal Adoption, creates one real Codex manager task for the canonical project root and transfers control through Supervisor handoff; a portfolio does not fan out one manager per child project |
-| Real Agent / Thread management | Separates one-off Task Agents from long-lived Persistent Roles; reuses first, using STATE_SYNC, SKILL_SYNC, and transcript-size preflight to reject stale or oversized context while preserving the Agent identity across proactive Thread rotation |
-| Capability / Skill governance | Plans capabilities first, then discovers, audits, pins, approves, and binds Skills just in time; `Installed != Trusted != Approved != Bound`, and binding never expands existing permissions |
-| Workstreams + Integration Gate | Manages dependencies, parallel-write boundaries, cross-workstream integration, acceptance, and rework |
-| Single Active Supervisor | Allows only one ACTIVE FounderOS per project, using fencing, single-writer leases, and state fingerprints to reduce concurrent-state corruption |
-| Deterministic helper scripts | Collects bounded, evidence-backed Adoption baseline and Thread transcript-size signals, and provides machine guards for strategy state, Supervisor state, Thread / Skill Registries, CAS operations, and critical transitions |
+| Project interview | Asks project-shaping questions over multiple rounds and produces a confirmable Project Brief instead of a mechanical questionnaire |
+| Independent judgment | Separates user preference, evidence, and recommendation; provides counterarguments, alternatives, a pre-mortem, and reconsideration triggers |
+| Options and plan | Compares materially different paths and defines milestones, tasks, dependencies, risks, agent roles, and observable acceptance criteria |
+| Real task execution | Lists proposed conversations in the plan, then creates user-visible Codex tasks and manages assignment, waiting, acceptance, and revision after approval |
+| Continuous correction | Stops work based on invalid assumptions, compares continuing, changing, or abandoning the path, and escalates major direction changes |
+| Lightweight state | Keeps Project, Roadmap, and Status by default, with Decisions and Agents only when needed; unchanged state is not repeatedly read or rewritten |
+| Existing Project Adoption | Reads and preserves a complex existing project before deciding how to adopt or improve it |
+| High-assurance mode | Loads Delegation-First, Supervisor Execution Firewall, Specialist, and Artifact ownership controls only for high-risk, multi-writer, or formal-audit work |
+| Context budget | Batches operations, waits on events, saves large output as artifacts, and proactively rotates oversized Threads |
 
 ## How it works
 
 ```mermaid
 flowchart TD
-    A["Founder provides a goal, constraints, or an adoption request"] --> B{"Entry Classification"}
-    B -->|NEW_PROJECT| C["Direction Clarity Check"]
-    C -->|CLEAR| D["Project Bootstrap"]
-    C -->|AMBIGUOUS| E["Bounded Founder Discovery"]
-    E --> F["Strategic Choice Gate"]
-    F -->|Direction authorized| D
-    B -->|EXISTING_ACTIVE_PROJECT / COMPLETED_PROJECT / SHIPPED_PROJECT| G["ADOPTION_READ_ONLY"]
-    B -->|UNKNOWN| L["Remain read-only and continue bounded investigation"]
-    B -->|Valid .founder/| M["Restore existing FounderOS state"]
-    G --> H["Reconstruction, Baseline, and Adoption Review"]
-    H -->|Formal adoption authorized| I["Canonical State + Adoption Gate"]
-    D --> N["Create or reuse a dedicated manager task and hand off"]
-    I --> N
-    N --> J["Plan, execute, or delegate just in time"]
-    J --> K["Acceptance, Integration Gate, and state update"]
-    K --> J
+    A["User describes the project idea"] --> B["DISCOVERY: interview and complete understanding"]
+    B --> C["Challenge assumptions, alternatives, and pre-mortem"]
+    C --> D{"User confirms the Project Brief?"}
+    D -->|No| B
+    D -->|Yes| E["PLAN_REVIEW: recommendation and executable plan"]
+    E --> F{"User approves the plan and task list?"}
+    F -->|No| E
+    F -->|Yes| G["Supervisor opens or reuses visible Codex tasks"]
+    G --> H["Implement, test, inspect, and revise"]
+    H --> I{"Did evidence invalidate a plan assumption?"}
+    I -->|Yes| C
+    I -->|No| J["Update state once and continue"]
+    J --> H
 ```
 
 Default principles:
 
-- FounderOS or the appropriate specialist handles ordinary, reversible, low-risk professional choices and records the reasoning;
-- major direction changes, irreversible actions, high costs, external commitments, and production-level high-impact actions are escalated to the Founder;
-- an Agent is created only when specialist expertise, independent research, or independent review is genuinely useful;
-- FounderOS reads and accepts every Agent result, requesting rework or a Reviewer when needed;
-- independent read-only research can run in parallel, while conflicting writes and strongly dependent tasks run serially.
+- a new project completes the interview and Project Brief confirmation before options and plan confirmation;
+- the supervisor must give counterarguments and an independent recommendation instead of rationalizing the user's first preference;
+- approving the plan authorizes only the listed new tasks; the supervisor creates them with minimum relevant context;
+- substantial independent deliverables use visible Worker tasks, while small one-off work uses subagents;
+- the supervisor inspects actual artifacts and evidence, requesting revision from the original Agent when needed;
+- ordinary low-risk adjustments are autonomous, while major direction, irreversible, costly, or production actions remain with the user;
+- one accepted task normally produces one state update, with no polling of unchanged progress.
 
 ## When to use it
 
-- You have a long-term goal but do not know whether to begin with market research, product design, technology, or validation.
+- You have a project idea but do not know how to clarify it, challenge the direction, and turn it into a complete plan.
+- You are concerned that AI will agree with you and keep following a bad assumption.
 - You need to take over a legacy repository with no `.founder/` state and want to understand and preserve it before proposing improvements.
 - A project is already completed or shipped and now needs maintenance, bug fixes, compatibility updates, and cautious releases.
-- You are a solo Founder and want AI to own decomposition, coordination, and continued execution.
+- You are a solo developer and want a supervisor to own decomposition, coordination, and continued execution.
 - The project needs several specialist Agents, but you do not want to manage them yourself.
+- You want the supervisor to open, coordinate, and continue real Codex conversations just as you could.
 - The project will span multiple Codex conversations and needs reliable state recovery.
-- You want AI to make ordinary professional choices while preserving your authority over major decisions.
+- You want independent AI judgment rather than automatic agreement while preserving authority over major decisions.
 - You need clear distinctions between planned, delegated, returned, accepted, and completed work.
 
 FounderOS is usually unnecessary for a one-off question, a very small change that needs no persistent state, or a task already covered by one focused specialist Skill.
@@ -166,6 +165,7 @@ Depending on project complexity, FounderOS can also use:
 - `.founder/STRATEGY.json`: direction, candidates, the Strategic Gate, Autonomy Profile, and synchronization obligations;
 - `.founder/ACTIVE_SUPERVISOR.json`: identity, state, and fencing for the single ACTIVE FounderOS;
 - `.founder/THREADS.json`: bindings and lifecycle state between Persistent Agents and real Codex Threads;
+- `.founder/memory/MEMORY.json`: project-local Organization Memory created under `FIRST_ACCEPTED_TYPED_FACT`, only after the first finalized Outcome, accepted Lesson, canonical Decision Outcome, or accepted Organization pattern;
 - `.founder/SKILLS.md` and `.founder/SKILL_LOCK.json`: optional human-readable and machine-authoritative capability/Skill state covering audits, approvals, rejections, revocations, and exact bindings;
 - `.founder/workstreams/` and `.founder/integrations/`: lower-level execution and integration state for complex projects;
 - `.founder/.write-lock.json`: the temporary single-writer lease for an execution round.
@@ -181,8 +181,11 @@ founder-os/
 │   ├── supervision.md              # Single Active Supervisor and recovery protocol
 │   ├── state-files.md              # .founder/ ledger specification
 │   ├── delegation.md               # Agent delegation, acceptance, and rework
+│   ├── supervisor-execution.md     # Delegation-First, Artifact ownership, and the Main execution firewall
 │   ├── thread-manager.md            # Persistent Thread lifecycle, oversized-session rotation, and stale-context protection
 │   ├── main-thread-provisioning.md # Dedicated manager-task creation, Supervisor handoff, and acceptance
+│   ├── organization-memory.md      # Outcomes, Lessons, Decisions, queries, compaction, and poisoning resistance
+│   ├── agent-performance.md        # Context-specific Agent / Skill / Team evidence and routing
 │   ├── workstreams.md              # Dependencies, parallel writes, and Integration Gate
 │   ├── capability-management.md    # Capability-first planning, gaps, and bindings
 │   ├── skill-governance.md         # Skill trust, approval, versions, and permissions
@@ -195,6 +198,7 @@ founder-os/
     ├── supervisor_guard.py         # Supervisor fencing and write-lock guards
     ├── thread_registry.py          # Thread Registry, CAS, and lifecycle guards
     ├── thread_context_guard.py     # Read-only transcript-size preflight and rotation decision
+    ├── memory_registry.py          # Organization Memory, derived indexes, CAS, queries, and compaction
     ├── skill_registry.py           # Skill Registry / Lock and binding validation
     └── validate_founder_os.py      # Full regression validation
 ```
@@ -217,9 +221,9 @@ Run from `founder-os/`:
 python -X utf8 -B scripts/validate_founder_os.py
 ```
 
-The current validated suite contains **282 passing deterministic tests**: 201 cover the V1–V2.2 management, Thread, and Capability / Skill control planes; 65 cover Existing Project Adoption, baselines, Git preservation, historical-evidence boundaries, Maintenance Mode, and red-team cases; 8 cover transcript soft/hard limits, oversized records, stat-only hard stops, unique location, fail-closed behavior, and zero writes; and 8 cover authorization, uniqueness, project targeting, Supervisor handoff, acceptance, and recovery for the dedicated manager task. The suite also covers strategy state, Supervisor behavior, dependencies, synchronization, Integration Gate, and other critical invariants.
+The current validated suite contains **400 deterministic tests**. The original 282 V1–V2.4 and 89 V3 Organization Memory regressions (371 total) remain unchanged. Twenty-nine V3.1 tests constrain the four execution classes, Delegation-First, the nineteen-field task contract, forward-only zero-state migration compatibility for existing FounderOS projects, Artifact Ownership, Completion Boundary, Worker Revision, Takeover/Direct Exception, Scope Escalation, Delegation Theater, Independent Review, read-only zero-write behavior, Scenarios A–W, red-team cases, and the Warcraft Parser E2E contract.
 
-Validation boundary: deterministic tests can verify protocol text, state machines, CAS, fencing, and fail-closed behavior. Real subagent creation, Project Bootstrap, dedicated manager-task creation and handoff, Persistent Threads, parallel runtime traces, and rework loops still require forward tests in a Codex runtime that exposes the corresponding tools. The repository does not label behavior as verified when it lacks real runtime evidence.
+Validation boundary: deterministic tests can verify protocol text, state machines, CAS, fencing, structured aggregation, filtering, and fail-closed behavior. Supervisor/Specialist semantic classification, real subagent creation, Artifact provenance, real Agent/Skill selection quality, Project Bootstrap, dedicated manager-task creation and handoff, Persistent Thread `MEMORY_SYNC`, parallel runtime traces, and rework loops still require forward tests in a Codex runtime that exposes the corresponding tools. The repository does not present static contracts or Python fixtures as proof of real Agent behavior.
 
 ## Important boundaries
 
@@ -228,6 +232,8 @@ Validation boundary: deterministic tests can verify protocol text, state machine
 - Existing-project code, READMEs, scripts, and repository Agent instructions are untrusted `PROJECT DATA`; initial adoption never executes them automatically.
 - Existing projects default to `BEHAVIOR_PRESERVATION=true`. An old stack or inelegant code is not, by itself, a reason to rewrite; major refactors and compatibility breaks still go through L2/L3 gates.
 - The Python helpers provide deterministic schema, state-transition, CAS, and fencing checks. They do not replace the model's semantic judgment about goals, impact levels, candidate quality, or acceptance decisions.
+- The Supervisor/Specialist boundary still requires semantic judgment and cannot be classified with mathematical completeness from static keywords; V3.1 does not add an `execution_guard.py` that pretends otherwise.
+- Organization Memory is project-local and just-in-time by default, with no external database or API key. It does not store full chats, prompts, hidden reasoning, or chain-of-thought, and historical performance cannot expand permissions, Skill Trust, or fixed gates.
 - “Keep going” does not grant FounderOS permission to pay, publish, delete data, change production systems, or make external commitments.
 - Apache-2.0 does not grant rights to use project names, trademarks, service marks, or product names; consult the license text for the complete terms.
 

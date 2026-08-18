@@ -14,6 +14,7 @@
 - [可选 STRATEGY.json](#可选-founderstrategyjson)
 - [Existing Project Adoption 状态](#existing-project-adoption-状态)
 - [可选 THREADS.json](#可选-founderthreadsjson)
+- [可选 Organization Memory](#可选-organization-memory)
 - [Workstream 与 Integration 状态](#workstream-与-integration-状态)
 - [可选 SKILLS.md 与 SKILL_LOCK.json](#可选-founderskillsmd-与-founderskill_lockjson)
 - [单写入租约](#单写入租约)
@@ -32,12 +33,14 @@
 ├── ACTIVE_SUPERVISOR.json     # 唯一 ACTIVE 的持久控制记录
 ├── STRATEGY.json              # 可选/新项目默认：方向、Gate、Autonomy 控制面
 ├── THREADS.json               # 可选：真实 Thread binding 控制登记册
+├── memory/MEMORY.json         # 可选：项目内 Organization Memory 机器权威
+├── memory/archive/            # 可选：真实压缩后才有的不可变历史分段
 ├── SKILLS.md                  # 可选：Capability/Skill 人读投影
 ├── SKILL_LOCK.json            # 可选：精确 Skill 供应链与 binding 机器权威
 └── adoption/REPORT.md         # 可选：Existing Project 详细 Adoption Baseline/Review
 ```
 
-执行型回合可临时创建 `.founder/.write-lock.json` 作为项目级单写入租约；Strategy/Thread/Skill 控制事务还可短暂使用各自的受控事务锁。它们只能由正确持有者在状态协调完成后清理。`ACTIVE_SUPERVISOR.json` 与项目写锁职责不同：前者长期协调唯一总管，后者保护一次写事务。`STRATEGY.json`、`THREADS.json`、`workstreams/`、`integrations/`、`SKILLS.md`、`SKILL_LOCK.json`、`adoption/REPORT.md`、`backups/` 与 `history/` 不属于五份 canonical 业务账本；除新项目的 pre-bootstrap Strategy 和获写授权后的 pre-adoption 控制状态外，均只在实际需要时创建。
+执行型回合可临时创建 `.founder/.write-lock.json` 作为项目级单写入租约；Strategy/Thread/Skill/Memory 控制事务还可短暂使用各自的受控事务锁。它们只能由正确持有者在状态协调完成后清理。`ACTIVE_SUPERVISOR.json` 与项目写锁职责不同：前者长期协调唯一总管，后者保护一次写事务。`STRATEGY.json`、`THREADS.json`、`memory/`、`workstreams/`、`integrations/`、`SKILLS.md`、`SKILL_LOCK.json`、`adoption/REPORT.md`、`backups/` 与 `history/` 不属于五份 canonical 业务账本；除新项目的 pre-bootstrap Strategy 和获写授权后的 pre-adoption 控制状态外，均只在实际需要时创建。
 
 新项目在正式 Bootstrap 之前，`.founder/` 只有 `ACTIVE_SUPERVISOR.json`、有效的 `STRATEGY.json` 和当前事务锁是合法状态，称为 **pre-bootstrap Strategy-only**。不得因 `PROJECT.md` 等五账本尚未创建就判定项目损坏；必须先恢复 Direction/Gate，只有 `BOOTSTRAP_AUTHORIZED` 才能一次建立真实的五账本。反过来，五账本只存在一部分也不是新项目，应进入恢复而非覆盖或重新初始化。
 
@@ -59,8 +62,9 @@
 - `.founder/integrations/**`：复杂 Integration Gate 的输入与证据；只有 ACTIVE 接受全局 Gate。
 - `SKILLS.md`：可选 Capability/Skill 人读投影；不能覆盖机器 Lock。
 - `SKILL_LOCK.json`：可选精确来源、版本、hash、批准与 binding 权威；只有实际启用 Registry 时与投影协调。
+- `memory/MEMORY.json`：可选项目内历史 Outcome、派生 Performance、Decision Outcome、Lesson 和 Routing 权威；不覆盖当前五账本、Strategy、Thread 或 Skill Trust。
 
-每次跨账本更新生成一个不会依赖本地递增计数的协调版本，例如 `R-20260811T092315Z-a1b2c3`（UTC 时间加短随机/任务标识）。先更新发生变化的权威账本，再最后更新 `STATUS.md`；未变化账本保留原 `Last revision`。`STATUS.md` 用 `Source revisions` 保存四份权威账本的精确版本映射，并用 `Reconciled revision` 标记本轮完整协调；Supervisor control record/lock 还为四账本和 STATUS 保存完整文件 SHA-256，内容变化不能靠保留旧 revision 绕过。如果 `STRATEGY.json` 存在，Supervisor fingerprints 同时保存完整 `STRATEGY_REVISION + STRATEGY_SHA256` 和语义 `STRATEGY_CONTEXT_REVISION + STRATEGY_CONTEXT_SHA256`：前者捕获任何控制变化，后者只在 selected strategy/Autonomy 语义变化时轮换并供 Worker stale 检测。Skill Registry/Lock 存在时另保存 `SKILL_REGISTRY_REVISION/SHA256` 与 `SKILL_LOCK_REVISION/SHA256`；它们不加入旧四源权威映射，Worker 只保存相关 binding baseline。另记录 `Supervisor revision`，但不把控制记录加入旧四源权威映射。恢复时逐项比较 revision + hash，任何不一致都先检查和协调，不直接相信旧快照。旧项目没有版本字段或 Supervisor/Strategy/Skill control 时不视为损坏；首次执行型恢复时先交叉检查，再按需安全迁移并在 `STATUS.md` 记录。
+每次跨账本更新生成一个不会依赖本地递增计数的协调版本，例如 `R-20260811T092315Z-a1b2c3`（UTC 时间加短随机/任务标识）。先更新发生变化的权威账本，再最后更新 `STATUS.md`；未变化账本保留原 `Last revision`。`STATUS.md` 用 `Source revisions` 保存四份权威账本的精确版本映射，并用 `Reconciled revision` 标记本轮完整协调；Supervisor control record/lock 还为四账本和 STATUS 保存完整文件 SHA-256，内容变化不能靠保留旧 revision 绕过。如果 `STRATEGY.json` 存在，Supervisor fingerprints 同时保存完整 `STRATEGY_REVISION + STRATEGY_SHA256` 和语义 `STRATEGY_CONTEXT_REVISION + STRATEGY_CONTEXT_SHA256`：前者捕获任何控制变化，后者只在 selected strategy/Autonomy 语义变化时轮换并供 Worker stale 检测。Skill Registry/Lock 存在时另保存 `SKILL_REGISTRY_REVISION/SHA256` 与 `SKILL_LOCK_REVISION/SHA256`；Memory 存在时另保存 `MEMORY_REVISION + MEMORY_SHA256`。这些可选控制不加入旧四源权威映射，Worker 只保存相关 task Memory/Skill baseline。另记录 `Supervisor revision`，但不把控制记录加入旧四源权威映射。恢复时逐项比较 revision + hash，任何不一致都先检查和协调，不直接相信旧快照。旧项目没有版本字段或 Supervisor/Strategy/Skill/Memory control 时不视为损坏；不存在时不得添加伪 `ABSENT` key 破坏旧 exact baseline。
 
 ## `.founder/PROJECT.md`
 
@@ -380,6 +384,13 @@ Founder 只回答“A”或候选 ID 时已是有效选择，不得要求其解�
 
 - Important gap / approval / install / update / hash mismatch / revoke / affected Agent; omit this section when none
 
+## Organization Learning
+
+- New or invalidated Outcome: ... | None
+- Lesson accepted / merged / staled: ... | None
+- Decision Outcome / Routing evidence: ... | None
+- Review Debt change: ... | None
+
 ## Risks and Unknowns
 
 - Severity — risk — mitigation / validation
@@ -416,7 +427,7 @@ Founder 只回答“A”或候选 ID 时已是有效选择，不得要求其解�
 
 这是持久控制面记录，不替代五份 Markdown 账本。完整模式判定、schema、handoff/takeover/recovery 和退化规则见 [supervision.md](supervision.md)。
 
-新 Bootstrap 与安全迁移使用 schema version 1，至少记录：canonical root、logical supervisor ID、可用时的 runtime identity、identity quality、mode、record revision、activation token、activated/last_seen、lease、handoff、transition/takeover/recovery、previous supervisor，以及 canonical revision + 完整文件 SHA-256 fingerprints。Strategy 存在时，source fingerprints 另包含完整 `STRATEGY_REVISION/SHA256` 和语义 `STRATEGY_CONTEXT_REVISION/SHA256`；Skill Registry/Lock 存在时另包含 `SKILL_REGISTRY_REVISION/SHA256` 与 `SKILL_LOCK_REVISION/SHA256`。不存在的旧状态保持原有 fingerprint shape，不用伪造的 `ABSENT` 字段破坏兼容。
+新 Bootstrap 与安全迁移使用 schema version 1，至少记录：canonical root、logical supervisor ID、可用时的 runtime identity、identity quality、mode、record revision、activation token、activated/last_seen、lease、handoff、transition/takeover/recovery、previous supervisor，以及 canonical revision + 完整文件 SHA-256 fingerprints。Strategy 存在时，source fingerprints 另包含完整 `STRATEGY_REVISION/SHA256` 和语义 `STRATEGY_CONTEXT_REVISION/SHA256`；Skill Registry/Lock 存在时另包含 `SKILL_REGISTRY_REVISION/SHA256` 与 `SKILL_LOCK_REVISION/SHA256`；Memory 存在时另包含 `MEMORY_REVISION/SHA256`。不存在的旧状态保持原有 fingerprint shape，不用伪造的 `ABSENT` 字段破坏兼容。
 
 只有持有当前 token 且原子取得写锁的 ACTIVE 能修改它。ADVISOR/REVIEWER/Lead/Specialist 不更新它；`last_seen` 旧不代表 owner 已死。写锁还必须包含规范化 project root、supervisor ID、token、Supervisor epoch revision、committed state SHA 和 source fingerprints；ACTIVE 在派发、canonical 更新和 Integration Gate 前重新核对全部 binding。
 
@@ -461,12 +472,27 @@ Founder 只回答“A”或候选 ID 时已是有效选择，不得要求其解�
 - 文件存在时，其 `registry_revision` 与完整 SHA-256 纳入 `ACTIVE_SUPERVISOR.json`/写锁 source fingerprints；正文同 revision 漂移也必须被检测；
 - 如果 Strategy 存在，Thread 的 canonical context baseline 同时绑定 `STRATEGY_CONTEXT_REVISION/SHA256`；完整 `STRATEGY_SHA256` 留给 Supervisor fencing，不写入 Worker baseline；
 - 使用 Skill 时，Thread 另保存 `capability_baseline`、`skill_registry_revision`、`skill_lock_revision`、精确 `bound_skills`、`skill_sync_state` 与 `last_skill_sync`；完整 Skill control 文件 SHA 留给 Supervisor，不写入 Worker baseline；
+- 使用相关 Organization Memory 时，Thread 另保存 task-bound `memory_baseline / memory_sync_state / last_memory_sync`，精确绑定 runtime/generation/query/selected record hashes；Memory 不进入 business context baseline，无关 revision 不触发全员 stale；
 - 旧 `skills` 字段只兼容观察；非空旧字段缺少机器 Lock 时标 `LEGACY_MIGRATION_REQUIRED`，不自动信任或绑定；
 - 只有持有当前 ACTIVE token、项目写锁、expected Supervisor SHA 和 expected Registry SHA 的 Main Thread 可以 mutation；
 - read-only inspect、Advisor/Reviewer/Worker 不得创建或更新时间戳；
 - malformed JSON、symlink/reparse、硬链接、wrong-project binding、duplicate primary 或未知 transaction lock 一律 fail closed。
 
 使用 `scripts/thread_registry.py` 只管理结构化 registry/CAS；它不创建假的 runtime Thread。Registry 外部操作出现部分成功时保留锁并进入 RECOVERY，不把 potential orphan 包装为成功。
+
+## 可选 Organization Memory
+
+完整 schema、typed mutation、Performance、Lesson、Archive、查询、恢复和防污染规则见 [organization-memory.md](organization-memory.md) 与 [agent-performance.md](agent-performance.md)。本文件只规定状态边界：
+
+- `memory/MEMORY.json` 是唯一可变机器权威；不拆成多份人工可编辑 Performance 文件；
+- 它只在首个 finalized outcome 或 accepted Lesson 时 Just-in-Time 创建，Bootstrap、只读 Adoption 和普通任务不创建空目录；
+- 当前项目事实仍以 Strategy/五账本/Thread/Skill control 为准，Memory 只保存历史证据；
+- 只有 ACTIVE Main 在项目写锁、activation token、expected Supervisor SHA 和 expected Memory SHA 下可写；Worker/Reviewer 只能提交候选；
+- active event 使用连续 sequence/hash chain；Agent/Skill/Team summary 必须由有效 Task Outcome 确定性重算；
+- Archive 仅在真实 compaction 时创建，必须先 O_EXCL 新建、fsync、重读/hash，再提交 manifest；
+- `.memory-registry-lock.json` 存在时所有新写入停止，只有精确 old/target/archive reconciliation 可恢复；
+- direct file、project binding、single link、reparse/junction/path traversal 和大小上限均 fail closed；
+- Memory 不使用外部数据库、向量库、API key 或默认跨项目同步。
 
 ## Workstream 与 Integration 状态
 
@@ -547,7 +573,7 @@ Lock 顶层至少包含：
 ## 创建与修复规则
 
 1. 创建前检查 `.founder/` 是否已有用户内容；不覆盖同名文件。
-2. 新项目先取得唯一 ACTIVE 和写锁，创建/inspect pre-bootstrap `STRATEGY.json`并完成 Direction Clarity/Strategic Gate；此时不创建五份空账本。只有 Gate 精确为 `BOOTSTRAP_AUTHORIZED` 时，才在同一 ACTIVE fencing 与 expected Strategy SHA 下一次建立五份互相一致的账本，用真实选定方向替换模板提示，迁入 Discovery Agent 历史，再用 `confirm-canonical` 进入 `OPERATING`。不创建空 Workstream/Thread Registry/Skill Registry/Skill Lock/归档。
+2. 新项目先取得唯一 ACTIVE 和写锁，创建/inspect pre-bootstrap `STRATEGY.json`并完成 Direction Clarity/Strategic Gate；此时不创建五份空账本。只有 Gate 精确为 `BOOTSTRAP_AUTHORIZED` 时，才在同一 ACTIVE fencing 与 expected Strategy SHA 下一次建立五份互相一致的账本，用真实选定方向替换模板提示，迁入 Discovery Agent 历史，再用 `confirm-canonical` 进入 `OPERATING`。不创建空 Workstream/Thread Registry/Skill Registry/Skill Lock/Memory/归档。
 3. 部分文件缺失时，从用户最新指令、现有账本和项目证据重建；把重建依据与不确定性记录在 `STATUS.md`，必要时追加决策。
 4. 文件损坏但存在时，把恢复作为一个事务：先列出所有将修改的账本，在 `.founder/backups/YYYYMMDD-HHMMSS/` 精确备份它们并写入含源路径、哈希（可用时）和目标版本的恢复清单；再保留所有可读片段并把全部替换文件暂存到同一文件系统，整体验证后依次替换权威账本，最后替换 `STATUS.md`。任一步失败就从清单回滚；若无法保证备份、目标准确、内容可保全或回滚，停止修复并请求用户决定。Bootstrap 不预创建空的 `backups/`。
 5. 每轮在持有正确 Supervisor fencing 和项目级单写入租约的前提下生成协调版本，先更新发生变化的 `PROJECT.md`、`ROADMAP.md`、`DECISIONS.md`、`AGENTS.md`，最后更新 `STATUS.md` 的派生快照、当前 Supervisor epoch revision 和 `Reconciled revision`；随后运行 guard `checkpoint` 同步 canonical、Strategy、Skill 与 Thread source fingerprints，并确认返回的 Supervisor revision 未改变。Strategy/Skill mutation 由各自 helper 协调 checkpoint；不得在 helper 成功后再用旧 expected SHA 继续写。协调完成且所有写入 Agent 终止后释放写锁。

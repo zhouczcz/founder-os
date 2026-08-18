@@ -81,9 +81,9 @@ Portfolio / workspace 根默认只创建一个总管任务。发现多个子项�
 2. 完成 runtime project/thread inventory 和唯一性检查。
 3. 创建一个 exact project/local 任务。初始 Prompt 标记 `MANAGER_TASK_BOOTSTRAP=1`，只允许只读恢复并等待交接；它不得提前 claim、改文件、派 Agent 或再次创建总管任务。
 4. 保存真实 `threadId + hostId`，设置标题 `FounderOS — <Project Name> 项目总管`。标题失败只把 name capability 标为 PARTIAL，不丢失 identity。
-5. 旧 ACTIVE 以真实 Thread identity 派生唯一目标 logical ID，取得写锁并按 [supervision.md](supervision.md) 执行 `offer-handoff`；冻结五账本、Strategy、可选 Thread/Skill 控制面和当前 Gate，随后释放写锁并停止项目写入。
+5. 旧 ACTIVE 以真实 Thread identity 派生唯一目标 logical ID，取得写锁并按 [supervision.md](supervision.md) 执行 `offer-handoff`；冻结五账本、Strategy、可选 Memory/Thread/Skill 控制面和当前 Gate，随后释放写锁并停止项目写入。
 6. 向新任务发送包含 exact project root、target logical ID、expected Supervisor state SHA、真实 thread/host identity 和 `HANDOFF_READY=1` 的 follow-up；绝不发送旧 activation token、凭据或大段旧聊天。
-7. 新任务核对 handoff/source fingerprints，按 CAS 接受 handoff并生成自己的新 token/epoch；然后按 FounderOS 恢复顺序读取 Strategy、五账本、AGENTS、可选 SKILLS/LOCK、THREADS 和 Workstreams。
+7. 新任务核对 handoff/source fingerprints，按 CAS 接受 handoff并生成自己的新 token/epoch；然后按 FounderOS 恢复顺序读取 Strategy、五账本、可选 Memory summary/index（不默认读 archive）、AGENTS、可选 SKILLS/LOCK、THREADS 和 Workstreams。若 Memory transaction lock、schema、hash 或 Supervisor fingerprint 不一致，先进入 recovery，不以旧摘要继续路由。
 8. 新任务运行 Supervisor inspect/verify 与 Strategy inspect，确认自身是 exact `ACTIVE + OPERATING`；在 `STATUS.md` 的 Evidence/Artifacts 中记录总管任务 identity、标题、接管时间和验证状态，checkpoint 后释放写锁。
 9. 新任务返回 `MANAGER_TASK_READY`。旧任务用 compact wait/list 与项目 control inspect 验收；必要时 bounded read 最近状态，但不读取整个历史。
 10. 只有验收通过，旧任务才向 Founder 报告创建成功并提供可点击任务入口；第一项项目工作由新 Main 继续，不在旧 Main 形成两个并行总管。
@@ -100,7 +100,7 @@ MANAGER_TASK_BOOTSTRAP=1
 PROJECT_ROOT=<canonical-project-root>
 
 你是为这个项目新创建的 FounderOS Main Task 候选。
-先只读恢复 .founder/ 和当前 Supervisor/Strategy 状态；在收到 HANDOFF_READY=1
+先只读恢复 .founder/、当前 Supervisor/Strategy、五账本与可选 Memory summary/index；在收到 HANDOFF_READY=1
 与 exact target logical ID/state SHA 前不要 claim、不要写项目、不要派发 Agent。
 你就是目标总管任务，禁止再次创建另一个总管任务。
 交接后验收 ACTIVE + OPERATING，更新 STATUS 证据并返回 MANAGER_TASK_READY。

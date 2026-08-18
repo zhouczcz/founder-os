@@ -438,6 +438,12 @@ def _metadata_identity(metadata: os.stat_result) -> tuple[int, ...]:
     )
 
 
+def _stable_metadata_identity(metadata: os.stat_result) -> tuple[int, ...]:
+    """Stable identity for lexical ancestors outside the installed Skill tree."""
+
+    return (metadata.st_dev, metadata.st_ino, stat.S_IFMT(metadata.st_mode))
+
+
 def _plain_installed_lstat(
     path: Path,
     *,
@@ -496,12 +502,14 @@ class _InstalledPathPin:
         *,
         windows: bool,
         directory: bool,
+        monitor_changes: bool,
     ):
         self.path = path
         self.handle = handle
         self.identity = identity
         self.windows = windows
         self.directory = directory
+        self.monitor_changes = monitor_changes
 
     def close(self) -> None:
         if self.handle < 0:
@@ -519,6 +527,7 @@ def _open_installed_path_pin(
     directory: bool,
     skill_id: str,
     expected_metadata: os.stat_result | None = None,
+    monitor_changes: bool = True,
 ) -> _InstalledPathPin:
     before = _plain_installed_lstat(
         path,
@@ -569,10 +578,14 @@ def _open_installed_path_pin(
                 directory=directory,
                 skill_id=skill_id,
             )
-            if _metadata_identity(before) != _metadata_identity(after):
+            identity_function = (
+                _metadata_identity if monitor_changes else _stable_metadata_identity
+            )
+            if identity_function(before) != identity_function(after):
                 raise _hash_mismatch(skill_id, f"installed path changed while pinning: {path}")
-            identity = _win_handle_identity(information)
-            if before.st_ino and identity[1] and before.st_ino != identity[1]:
+            full_identity = _win_handle_identity(information)
+            identity = full_identity if monitor_changes else full_identity[:2]
+            if before.st_ino and full_identity[1] and before.st_ino != full_identity[1]:
                 raise _hash_mismatch(skill_id, f"installed path identity changed: {path}")
             return _InstalledPathPin(
                 path,
@@ -580,6 +593,7 @@ def _open_installed_path_pin(
                 identity,
                 windows=True,
                 directory=directory,
+                monitor_changes=monitor_changes,
             )
         except Exception:
             _KERNEL32.CloseHandle(handle)
@@ -594,8 +608,9 @@ def _open_installed_path_pin(
         raise _hash_mismatch(skill_id, f"cannot pin installed path {path}: {exc}") from exc
     try:
         opened = os.fstat(handle)
-        identity = _metadata_identity(opened)
-        if identity != _metadata_identity(before):
+        identity_function = _metadata_identity if monitor_changes else _stable_metadata_identity
+        identity = identity_function(opened)
+        if identity != identity_function(before):
             raise _hash_mismatch(skill_id, f"installed path changed while pinning: {path}")
         return _InstalledPathPin(
             path,
@@ -603,6 +618,7 @@ def _open_installed_path_pin(
             identity,
             windows=False,
             directory=directory,
+            monitor_changes=monitor_changes,
         )
     except Exception:
         os.close(handle)
@@ -617,16 +633,26 @@ def _assert_installed_path_pin(pin: _InstalledPathPin, *, skill_id: str) -> None
     )
     if pin.windows:
         information = _win_handle_information(pin.handle, skill_id=skill_id)
-        identity = _win_handle_identity(information)
+        attributes = int(information.attributes)
+        if bool(attributes & _WIN_FILE_ATTRIBUTE_DIRECTORY) != pin.directory or (
+            attributes & _WIN_FILE_ATTRIBUTE_REPARSE_POINT
+        ):
+            raise _hash_mismatch(skill_id, f"pinned installed path type changed: {pin.path}")
+        full_identity = _win_handle_identity(information)
+        identity = full_identity if pin.monitor_changes else full_identity[:2]
         if identity != pin.identity or (
-            metadata.st_ino and identity[1] and metadata.st_ino != identity[1]
+            metadata.st_ino and full_identity[1] and metadata.st_ino != full_identity[1]
         ):
             raise _hash_mismatch(skill_id, f"pinned installed path changed: {pin.path}")
-    elif (
-        _metadata_identity(metadata) != pin.identity
-        or _metadata_identity(os.fstat(pin.handle)) != pin.identity
-    ):
-        raise _hash_mismatch(skill_id, f"pinned installed path changed: {pin.path}")
+    else:
+        identity_function = (
+            _metadata_identity if pin.monitor_changes else _stable_metadata_identity
+        )
+        if (
+            identity_function(metadata) != pin.identity
+            or identity_function(os.fstat(pin.handle)) != pin.identity
+        ):
+            raise _hash_mismatch(skill_id, f"pinned installed path changed: {pin.path}")
 
 
 class _InstalledTreeFence:
@@ -662,6 +688,7 @@ class _InstalledTreeFence:
                         expected_metadata=(
                             expected_root_metadata if component == lexical else None
                         ),
+                        monitor_changes=(component == lexical),
                     )
                 )
             fence = cls(lexical, skill_id, pins)
@@ -2114,20 +2141,27 @@ def _mutate_skill_registry(
     expected_registry_sha = (
         guard.sha256_bytes(old_registry_raw) if old_registry_raw is not None else "ABSENT"
     )
-    nonce = _acquire_transaction_lock(
-        transaction_path,
-        root=root,
-        owner=owner,
-        expected_state_sha=expected_state_sha,
-        expected_lock_sha=expected_lock_sha,
-        expected_registry_sha=expected_registry_sha,
-        target_lock_sha=target_lock_sha,
-        target_registry_sha=target_registry_sha,
-        previous_lock_raw=old_lock_raw,
-        previous_registry_raw=old_registry_raw,
-        target_lock_raw=next_lock_raw,
-        target_registry_raw=next_registry_raw,
+    commit_mutex = guard.acquire_governance_commit_mutex(
+        str(root), operation=f"skill-registry:{operation}"
     )
+    try:
+        nonce = _acquire_transaction_lock(
+            transaction_path,
+            root=root,
+            owner=owner,
+            expected_state_sha=expected_state_sha,
+            expected_lock_sha=expected_lock_sha,
+            expected_registry_sha=expected_registry_sha,
+            target_lock_sha=target_lock_sha,
+            target_registry_sha=target_registry_sha,
+            previous_lock_raw=old_lock_raw,
+            previous_registry_raw=old_registry_raw,
+            target_lock_raw=next_lock_raw,
+            target_registry_raw=next_registry_raw,
+        )
+    except Exception:
+        commit_mutex.close()
+        raise
     release_lock = True
     wrote_control = False
     try:
@@ -2164,6 +2198,7 @@ def _mutate_skill_registry(
                 owner=owner,
                 activation_token=activation_token,
                 expected_state_sha=expected_state_sha,
+                _commit_mutex_held=True,
             )
         except guard.PartialCommit as exc:
             release_lock = False
@@ -2231,15 +2266,18 @@ def _mutate_skill_registry(
                 ) from rollback_exc
         raise
     finally:
-        if release_lock:
-            try:
-                _release_transaction_lock(transaction_path, owner=owner, nonce=nonce)
-            except (guard.GuardError, OSError) as exc:
-                raise SkillRegistryPartialCommit(
-                    "Skill Registry transaction completed but its lock could not be released",
-                    changed_paths=[str(transaction_path)],
-                    recovery_action="recover-skill-registry-lock",
-                ) from exc
+        try:
+            if release_lock:
+                try:
+                    _release_transaction_lock(transaction_path, owner=owner, nonce=nonce)
+                except (guard.GuardError, OSError) as exc:
+                    raise SkillRegistryPartialCommit(
+                        "Skill Registry transaction completed but its lock could not be released",
+                        changed_paths=[str(transaction_path)],
+                        recovery_action="recover-skill-registry-lock",
+                    ) from exc
+        finally:
+            commit_mutex.close()
 
 
 def initialize_skill_registry(
@@ -2468,6 +2506,7 @@ def recover_skill_registry_lock(
     lock_owner: str,
     predecessor_liveness: str,
     authorization_ref: str,
+    _commit_mutex_held: bool = False,
 ) -> dict[str, Any]:
     """Release a stranded transaction only when old or target pair is proven."""
 
@@ -2480,6 +2519,19 @@ def recover_skill_registry_lock(
     if predecessor_liveness not in {"current", "terminated"}:
         raise guard.InvalidState("predecessor_liveness must be current or terminated")
     root, founder, _created = guard.resolve_project_root(project)
+    if not _commit_mutex_held:
+        with guard.acquire_governance_commit_mutex(
+            str(root), operation="skill-registry:recover"
+        ):
+            return recover_skill_registry_lock(
+                str(root), owner=owner, activation_token=activation_token,
+                expected_state_sha=expected_state_sha,
+                expected_lock_sha=expected_lock_sha,
+                lock_owner=lock_owner,
+                predecessor_liveness=predecessor_liveness,
+                authorization_ref=authorization_ref,
+                _commit_mutex_held=True,
+            )
     fence = guard.verify_fence(
         str(root),
         owner=owner,
@@ -2606,6 +2658,7 @@ def recover_skill_registry_lock(
             owner=owner,
             activation_token=activation_token,
             expected_state_sha=expected_state_sha,
+            _commit_mutex_held=True,
         )
         next_state_sha = checkpoint["state_sha"]
     _direct_file(path, "Skill Registry transaction lock")

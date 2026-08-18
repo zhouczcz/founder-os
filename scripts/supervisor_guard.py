@@ -17,6 +17,7 @@ import secrets
 import stat
 import sys
 import tempfile
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -54,6 +55,143 @@ class PartialCommit(GuardError):
         super().__init__(message)
         self.changed_paths = changed_paths
         self.recovery_action = recovery_action
+
+
+_GOVERNANCE_MUTEX_GUARD = threading.Lock()
+_GOVERNANCE_MUTEX_KEYS: set[str] = set()
+
+
+class GovernanceCommitMutex:
+    """Process-lifetime mutex shared by every canonical governance writer.
+
+    The mutex is deliberately OS-owned rather than represented by another
+    recoverable project file: a crashed process releases it automatically,
+    while the durable per-registry transaction lock remains the recovery
+    authority for any interrupted write.
+    """
+
+    def __init__(
+        self,
+        *,
+        local_key: str,
+        windows_handle: int | None = None,
+        posix_fd: int | None = None,
+    ) -> None:
+        self._local_key = local_key
+        self._windows_handle = windows_handle
+        self._posix_fd = posix_fd
+        self._closed = False
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            if self._windows_handle is not None:
+                import ctypes
+
+                kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+                if not kernel32.ReleaseMutex(self._windows_handle):
+                    error = ctypes.get_last_error()
+                    kernel32.CloseHandle(self._windows_handle)
+                    self._windows_handle = None
+                    raise OSError(error, "ReleaseMutex failed")
+                kernel32.CloseHandle(self._windows_handle)
+                self._windows_handle = None
+            if self._posix_fd is not None:
+                import fcntl
+
+                try:
+                    fcntl.flock(self._posix_fd, fcntl.LOCK_UN)
+                finally:
+                    os.close(self._posix_fd)
+                    self._posix_fd = None
+        finally:
+            with _GOVERNANCE_MUTEX_GUARD:
+                _GOVERNANCE_MUTEX_KEYS.discard(self._local_key)
+
+    def __enter__(self) -> "GovernanceCommitMutex":
+        return self
+
+    def __exit__(self, _exc_type: Any, _exc: Any, _traceback: Any) -> None:
+        self.close()
+
+
+def acquire_governance_commit_mutex(
+    project: str,
+    *,
+    operation: str,
+) -> GovernanceCommitMutex:
+    """Acquire the project-wide short commit mutex without changing project bytes."""
+
+    operation = require_nonempty_text(operation, "governance commit operation", max_length=128)
+    root, founder, _created = resolve_project_root(project)
+    local_key = os.path.normcase(str(root))
+    with _GOVERNANCE_MUTEX_GUARD:
+        if local_key in _GOVERNANCE_MUTEX_KEYS:
+            raise Conflict(
+                f"Another canonical governance commit is already in progress ({operation})"
+            )
+        _GOVERNANCE_MUTEX_KEYS.add(local_key)
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
+        kernel32.CreateMutexW.restype = wintypes.HANDLE
+        kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel32.WaitForSingleObject.restype = wintypes.DWORD
+        kernel32.ReleaseMutex.argtypes = [wintypes.HANDLE]
+        kernel32.ReleaseMutex.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        binding = hashlib.sha256(os.path.normcase(str(root)).encode("utf-8")).hexdigest().upper()
+        handle = kernel32.CreateMutexW(None, False, f"Local\\FounderOS-Governance-{binding}")
+        if not handle:
+            with _GOVERNANCE_MUTEX_GUARD:
+                _GOVERNANCE_MUTEX_KEYS.discard(local_key)
+            raise OSError(ctypes.get_last_error(), "CreateMutexW failed")
+        wait_result = int(kernel32.WaitForSingleObject(handle, 0))
+        if wait_result not in {0x00000000, 0x00000080}:  # acquired or abandoned
+            kernel32.CloseHandle(handle)
+            with _GOVERNANCE_MUTEX_GUARD:
+                _GOVERNANCE_MUTEX_KEYS.discard(local_key)
+            if wait_result == 0x00000102:
+                raise Conflict(
+                    f"Another canonical governance commit is already in progress ({operation})"
+                )
+            raise OSError(ctypes.get_last_error(), "WaitForSingleObject failed")
+        return GovernanceCommitMutex(local_key=local_key, windows_handle=int(handle))
+
+    import fcntl
+
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_CLOEXEC", 0)
+    try:
+        descriptor = os.open(founder, flags)
+    except Exception:
+        with _GOVERNANCE_MUTEX_GUARD:
+            _GOVERNANCE_MUTEX_KEYS.discard(local_key)
+        raise
+    try:
+        before = founder.lstat()
+        opened = os.fstat(descriptor)
+        if (before.st_dev, before.st_ino) != (opened.st_dev, opened.st_ino):
+            raise Conflict("Founder control directory changed before governance commit")
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as exc:
+        os.close(descriptor)
+        with _GOVERNANCE_MUTEX_GUARD:
+            _GOVERNANCE_MUTEX_KEYS.discard(local_key)
+        raise Conflict(
+            f"Another canonical governance commit is already in progress ({operation})"
+        ) from exc
+    except Exception:
+        os.close(descriptor)
+        with _GOVERNANCE_MUTEX_GUARD:
+            _GOVERNANCE_MUTEX_KEYS.discard(local_key)
+        raise
+    return GovernanceCommitMutex(local_key=local_key, posix_fd=descriptor)
 
 
 def utc_now() -> str:
@@ -352,6 +490,36 @@ def read_source_revisions(founder: Path) -> dict[str, str | None]:
         result["SKILL_REGISTRY_REVISION"] = require_nonempty_text(
             skill_lock.get("skill_registry_revision"), "Skill registry revision"
         )
+    # V3 Organization Memory is optional and project-local.  Preserve exact
+    # V2.x fingerprint shape when it is absent; adding unconditional ABSENT
+    # keys would stale every existing ACTIVE project.  Once the machine
+    # authority exists, its revision and exact bytes participate in the same
+    # Supervisor fencing/checkpoint protocol as Strategy, Threads, and Skills.
+    memory_root = founder / "memory"
+    memory_path = memory_root / "MEMORY.json"
+    if memory_path.exists():
+        if (
+            _is_reparse_or_link(memory_root)
+            or not memory_root.is_dir()
+            or not _same_path(memory_root.resolve(strict=True).parent, founder)
+        ):
+            raise InvalidState(
+                f"Memory directory must be a direct project-local directory: {memory_root}"
+            )
+        metadata = memory_path.lstat()
+        if (
+            _is_reparse_or_link(memory_path)
+            or not memory_path.is_file()
+            or metadata.st_nlink != 1
+        ):
+            raise InvalidState(
+                f"Memory registry must be a direct single-link file: {memory_path}"
+            )
+        raw, memory = read_json_object(memory_path)
+        result["MEMORY_REVISION"] = require_nonempty_text(
+            memory.get("memory_revision"), "Memory revision"
+        )
+        result["MEMORY_SHA256"] = sha256_bytes(raw)
     return result
 
 
@@ -578,7 +746,23 @@ def _commit_active_and_lock(
     lock_path: Path,
     record: dict[str, Any],
     lock: dict[str, Any],
+    *,
+    _commit_mutex_held: bool = False,
 ) -> str:
+    if not _commit_mutex_held:
+        mutex = acquire_governance_commit_mutex(
+            str(state_path.parent.parent), operation="supervisor-state-commit"
+        )
+        try:
+            return _commit_active_and_lock(
+                state_path,
+                lock_path,
+                record,
+                lock,
+                _commit_mutex_held=True,
+            )
+        finally:
+            mutex.close()
     _atomic_replace(state_path, record)
     try:
         state_sha, _observed = state_observation(state_path)
@@ -904,7 +1088,21 @@ def offer_handoff(
     target: str,
     basis: str,
     expected_state_sha: str,
+    _commit_mutex_held: bool = False,
 ) -> dict[str, Any]:
+    if not _commit_mutex_held:
+        with acquire_governance_commit_mutex(
+            project, operation="supervisor-handoff-offer"
+        ):
+            return offer_handoff(
+                project,
+                owner=owner,
+                activation_token=activation_token,
+                target=target,
+                basis=basis,
+                expected_state_sha=expected_state_sha,
+                _commit_mutex_held=True,
+            )
     require_nonempty_text(target, "handoff target")
     require_nonempty_text(basis, "handoff basis")
     if target == owner:
@@ -933,7 +1131,9 @@ def offer_handoff(
     lock = _lock_owner(lock_path)
     if lock is None:  # pragma: no cover - verify_fence already requires it.
         raise Conflict("Current turn does not hold the write lock")
-    next_sha = _commit_active_and_lock(state_path, lock_path, record, lock)
+    next_sha = _commit_active_and_lock(
+        state_path, lock_path, record, lock, _commit_mutex_held=True
+    )
     return {
         "result": "HANDOFF_OFFERED",
         "mode": "ACTIVE",
@@ -952,8 +1152,24 @@ def checkpoint_active(
     owner: str,
     activation_token: str,
     expected_state_sha: str,
+    _commit_mutex_held: bool = False,
 ) -> dict[str, Any]:
     """Commit the current canonical revision map under the held write fence."""
+
+    if not _commit_mutex_held:
+        mutex = acquire_governance_commit_mutex(
+            project, operation="supervisor-checkpoint"
+        )
+        try:
+            return checkpoint_active(
+                project,
+                owner=owner,
+                activation_token=activation_token,
+                expected_state_sha=expected_state_sha,
+                _commit_mutex_held=True,
+            )
+        finally:
+            mutex.close()
 
     expected_state_sha = validate_expected_state_sha(expected_state_sha)
     fence = verify_fence(
@@ -981,7 +1197,13 @@ def checkpoint_active(
     lock = _lock_owner(lock_path)
     if lock is None:  # pragma: no cover - verify_fence already requires it.
         raise Conflict("Current turn does not hold the write lock")
-    next_sha = _commit_active_and_lock(state_path, lock_path, record, lock)
+    next_sha = _commit_active_and_lock(
+        state_path,
+        lock_path,
+        record,
+        lock,
+        _commit_mutex_held=_commit_mutex_held,
+    )
     return {
         "result": "SUPERVISOR_CHECKPOINTED",
         "mode": "ACTIVE",
@@ -1182,7 +1404,23 @@ def clear_released_lock(
     }
 
 
-def release_lock(project: str, *, owner: str, activation_token: str) -> dict[str, Any]:
+def release_lock(
+    project: str,
+    *,
+    owner: str,
+    activation_token: str,
+    _commit_mutex_held: bool = False,
+) -> dict[str, Any]:
+    if not _commit_mutex_held:
+        with acquire_governance_commit_mutex(
+            project, operation="supervisor-write-lock-release"
+        ):
+            return release_lock(
+                project,
+                owner=owner,
+                activation_token=activation_token,
+                _commit_mutex_held=True,
+            )
     verify_fence(project, owner=owner, activation_token=activation_token)
     _root, founder, _founder_created = resolve_project_root(project)
     _state_sha, record = state_observation(founder / STATE_NAME)
@@ -1210,7 +1448,20 @@ def release_supervisor(
     activation_token: str,
     expected_state_sha: str,
     basis: str,
+    _commit_mutex_held: bool = False,
 ) -> dict[str, Any]:
+    if not _commit_mutex_held:
+        with acquire_governance_commit_mutex(
+            project, operation="supervisor-release"
+        ):
+            return release_supervisor(
+                project,
+                owner=owner,
+                activation_token=activation_token,
+                expected_state_sha=expected_state_sha,
+                basis=basis,
+                _commit_mutex_held=True,
+            )
     require_nonempty_text(basis, "release basis")
     expected_state_sha = validate_expected_state_sha(expected_state_sha)
     verify_fence(project, owner=owner, activation_token=activation_token)

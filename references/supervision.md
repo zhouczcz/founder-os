@@ -10,6 +10,7 @@
 - [控制记录与写锁](#控制记录与写锁)
 - [Strategy 控制面与双指纹](#strategy-控制面与双指纹)
 - [Capability 与 Skill 控制面](#capability-与-skill-控制面)
+- [Organization Memory 控制面](#organization-memory-控制面)
 - [故障原子性与修复](#故障原子性与修复)
 - [进入模式判定](#进入模式判定)
 - [ACTIVE 执行栅栏](#active-执行栅栏)
@@ -48,7 +49,7 @@
 2. 当前上下文持有创建时返回的 `activation_token`，不得从文件中复制 token 后冒充旧会话；
 3. 当前回合原子取得 `.founder/.write-lock.json`；
 4. 写锁中的 canonical project root、supervisor ID、token、Supervisor epoch revision、committed state SHA 和 source fingerprints 与当前记录一致；
-5. canonical 源 revision 与完整文件 SHA-256 都没有无法解释的变化；如果 `STRATEGY.json` 存在，完整 Strategy revision/SHA 与语义 context revision/SHA 也必须与当前记录一致；如果 Skill Registry/Lock 存在，其 project binding、revision/SHA 和事务状态也必须一致。
+5. canonical 源 revision 与完整文件 SHA-256 都没有无法解释的变化；如果 `STRATEGY.json` 存在，完整 Strategy revision/SHA 与语义 context revision/SHA 也必须与当前记录一致；如果 Skill Registry/Lock 存在，其 project binding、revision/SHA 和事务状态也必须一致；如果 Memory 存在，其 project binding、revision/SHA、event chain 和 transaction state 也必须一致。
 
 其他 FounderOS 会话默认进入 ADVISOR；用户明确要求独立评审时进入 REVIEWER。不得因为能读到旧 Supervisor 的 ID/token、锁文件不存在或 `last_seen` 很旧，就自动成为 ACTIVE。
 
@@ -116,7 +117,7 @@ Existing Project 正式 Adoption 获写授权后也创建同一控制记录；�
 
 `.founder/.write-lock.json` 继续是一次写入事务的原子租约。除原有字段外，加入 `supervisor_id`、`activation_token`、`supervisor_record_revision`、`committed_supervisor_state_sha` 和包含 revision + SHA-256 的 `source_revisions`。ACTIVE 身份长期存在，写锁只在当前写入协调期间存在；不要把二者合并。
 
-控制记录和锁中的 `source_revisions` 名称为兼容旧 schema 保留，但其当前值不是只有 revision 字符串：四份源账本与 `STATUS.md` 都保存完整文件 SHA-256，可选 Thread/Strategy/Skill 控制文件也按各自协议纳入。内容改变而 revision 文本未改变仍是漂移。canonical 与控制文件必须是 `.founder/` 内的直接单链接普通文件；符号链接、junction、重解析点或多硬链接都进入 RECOVERY。
+控制记录和锁中的 `source_revisions` 名称为兼容旧 schema 保留，但其当前值不是只有 revision 字符串：四份源账本与 `STATUS.md` 都保存完整文件 SHA-256，可选 Thread/Strategy/Skill/Memory 控制文件也按各自协议纳入。内容改变而 revision 文本未改变仍是漂移。canonical 与控制文件必须是 `.founder/` 内的直接单链接普通文件；符号链接、junction、重解析点或多硬链接都进入 RECOVERY。
 
 `last_seen_at` 只在 ACTIVE 持有写锁并完成可解释的协调动作时更新。时间戳和 TTL 不能单独证明旧 Supervisor 已终止。
 
@@ -156,6 +157,21 @@ pre-adoption 期间相同的 control-only 文件形态也是合法，但只在�
 
 Worker baseline 只保存相关 capability、Registry/Lock revision 和 bound-skill-set hash，不绑定整个文件 SHA；完整 hashes 仍用于 Supervisor fencing。添加、升级、移除、权限变化或 revoke Skill 后，受影响 Thread 必须完成 [skill-governance.md](skill-governance.md) 的 `SKILL_SYNC` 才能接新任务或提交当前结果。
 
+## Organization Memory 控制面
+
+`.founder/memory/MEMORY.json` 是项目本地历史 Outcome/Lesson/Performance 的唯一可变机器权威；完整职责见 [organization-memory.md](organization-memory.md)。它不是第六份业务账本，也不是权限、Skill Trust 或 Strategic decision 权威。
+
+存在时，Supervisor/写锁/checkpoint/handoff/recovery source fingerprints 加入：
+
+- `MEMORY_REVISION`；
+- 整个 `MEMORY.json` 的 `MEMORY_SHA256`。
+
+不存在时保持旧 fingerprint shape，不添加伪 `ABSENT`。Memory 只在 finalized outcome 或 accepted Lesson 时按需创建；Bootstrap 和 Adoption audit 不创建空状态。
+
+只有持有当前 ACTIVE token、项目写锁、expected Supervisor SHA 和 expected Memory SHA 的 Main 可调用 typed Memory mutation。Worker/Reviewer 只能提供 untrusted candidate/evidence。Memory transaction lock、event chain、派生 summary 或 Archive hash 任一异常时，停止新的 Memory mutation、相关 routing 与相关 Thread dispatch；五账本当前事实仍按其自身健康状态读取。
+
+Thread 不把整个 Memory revision 加入 business context baseline。它只保存 task-bound query 与 selected record hashes；无关 Memory 更新不 stale 全员，相关变化才要求 exact `MEMORY_SYNC`。完整 Memory SHA 仍由 Supervisor fencing 保护。
+
 ## 故障原子性与修复
 
 Supervisor record 与写锁是两个文件，无法假装为单文件原子事务。若控制记录已成功替换、随后锁的更新或清理失败，guard 返回 `PARTIAL_COMMIT / RECOVERY_REQUIRED`，并且故意保留锁；不得继续写入、删除该锁或把失败包装成成功。
@@ -170,12 +186,16 @@ Strategy mutation 同样是 `STRATEGY.json + ACTIVE_SUPERVISOR.json + .write-loc
 
 Skill mutation 是 `SKILL_LOCK.json + SKILLS.md + ACTIVE_SUPERVISOR.json + .write-lock.json` 的协调事务。若 Lock 已替换但投影/checkpoint/rollback 无法证明，保留 Skill 事务故障栅栏并停止相关 binding、dispatch、验收和 Integration；只能用受控 recovery 对照 owner/nonce、expected hashes、当前 Lock、installed content 与 Supervisor fingerprint。不得手工把 Markdown 改成“看起来一致”后继续。
 
+Memory mutation 是 `MEMORY.json + ACTIVE_SUPERVISOR.json + .write-lock.json` 的协调事务；compaction 还包括不可变 Archive。任何 target/checkpoint/archive/lock cleanup 不确定时保留 `.founder/memory/.memory-registry-lock.json`。`recover-lock` 只接受事务记录的精确 old 或 target SHA 和精确 archive hash；未知或混合状态继续 RECOVERY，不按锁年龄清理。
+
+Strategy、Thread、Skill 与 Memory 的 commit/checkpoint 阶段共用一个项目级 OS-owned 短互斥；同一进程也拒绝重入。互斥必须先于各 Registry 事务文件与 target 写入取得，cleanup 完成后释放，因此跨 Registry writer 不能互相把未提交 target 纳入 Supervisor checkpoint。崩溃自动释放互斥，但持久事务锁继续保留并要求各自 recovery。
+
 ## 进入模式判定
 
 按以下顺序判定，不先写文件：
 
 1. 规范化项目根并拒绝无法解释的符号链接、junction 或重解析点；先按 [project-adoption.md](project-adoption.md) 区分 New、无状态 Existing、current/legacy FounderOS、Recovery/collision。
-2. 读取 `ACTIVE_SUPERVISOR.json`、可选 `STRATEGY.json`、五份账本、`STATUS.md` revision 映射、可选 `SKILLS.md/SKILL_LOCK.json`、`.write-lock.json`/相关事务锁（若存在）和活动 Agent 状态。Strategy 存在时先校验 project binding、schema、完整/语义 fingerprints 与 Gate；Skill control 存在时校验 project binding、投影/Lock revision、完整 hashes 与 pending skill sync。
+2. 读取 `ACTIVE_SUPERVISOR.json`、可选 `STRATEGY.json`、五份账本、`STATUS.md` revision 映射、可选 `memory/MEMORY.json`、`SKILLS.md/SKILL_LOCK.json`、`.write-lock.json`/相关事务锁（若存在）和活动 Agent 状态。Strategy 存在时先校验 project binding、schema、完整/语义 fingerprints 与 Gate；Memory 存在时只读校验 project binding、revision/hash、event chain、summary 和 transaction，再读取 current summary/index 而不默认打开 archive；Skill control 存在时校验 project binding、投影/Lock revision、完整 hashes 与 pending skill sync。
 3. 用户只要求建议/解释时进入 ADVISOR；只要求审计/评审时进入 REVIEWER。
 4. 记录有效且指向另一个可能活跃的 Supervisor 时进入 ADVISOR/REVIEWER；不得写入或创建项目级 Agent。
 5. 记录指向当前上下文持有的逻辑 ID/token，且 lock/state/source fingerprints 全部通过 fencing 检查时，当前会话可继续 ACTIVE。
@@ -194,6 +214,7 @@ ACTIVE 在以下时点重新核对 Supervisor record revision 和 activation tok
 - 修改 canonical 账本或全局优先级前；
 - 执行 Integration Gate、推进里程碑或发布老板摘要中的完成结论前。
 - 获取、安装、登记、绑定、升级、revoke Skill 或把 Thread 恢复为 skill-current 前。
+- 写入/更正/撤回/压缩 Memory，按 Performance 路由，或把 Thread 恢复为 memory-current 前。
 
 Strategy 存在时，上述每个时点还必须核对完整 Strategy fingerprints 并执行当前 Gate 授权检查。非 `OPERATING` 不自动变成失去 ACTIVE；Main 仍负责协调当前 Gate，但只能执行该 Gate 明确允许的 Direction/Discovery/Adoption 只读、Adoption canonicalization、canonical Decision、STATE_SYNC、report 或 recovery control。`ADOPTION_STATE_REQUIRED` 只允许以 baseline 为依据后补/验证五账本；候选绑定 spawn、Persistent Thread assign、Skill binding 和 Integration 必须等到 `OPERATING`。
 
@@ -205,7 +226,7 @@ token/revision 不匹配时立即停止新写入和调度，进入 ADVISOR/RECOV
 
 1. 旧 ACTIVE 取得写锁并停止新派发。
 2. 等待所有写入 Agent 终止，或逐项记录可安全移交的真实 runtime ID、写入范围和局部状态。
-3. 协调五份账本（pre-bootstrap 时则确认它们尚未创建），冻结 source revisions + 完整文件 SHA-256；Strategy 存在时同时冻结完整/语义四指纹和当前 Gate/proposal；Skill Registry/Lock 存在时冻结两个 revision/完整 SHA、pending sync 与受影响 binding；把 `handoff.state` 写为 `offered`，记录目标逻辑 ID/描述和依据。
+3. 协调五份账本（pre-bootstrap 时则确认它们尚未创建），冻结 source revisions + 完整文件 SHA-256；Strategy 存在时同时冻结完整/语义四指纹和当前 Gate/proposal；Memory 存在时冻结 revision/SHA、transaction state 与 current summary/index；Skill Registry/Lock 存在时冻结两个 revision/完整 SHA、pending sync 与受影响 binding；把 `handoff.state` 写为 `offered`，记录目标逻辑 ID/描述和依据。
 4. 旧 ACTIVE 释放写锁，但保持记录为 handoff offered；不再修改项目。
 5. 新会话先核对当前 canonical fingerprints 与 handoff 冻结值完全一致，再取得写锁并以 expected state hash/CAS 验证提议未变化，生成新的 token 和 record revision，记录 `previous_supervisor`；任一内容 hash 漂移都进入 RECOVERY。
 6. 新 ACTIVE 审计局部写入、Agent、依赖和状态后再继续。
@@ -220,9 +241,9 @@ handoff offered 之后，旧 ACTIVE 不得用普通 checkpoint 把新的 canonic
 
 V2 中 Main Thread 的更换必须复用上述 Single Active Supervisor handoff，不能把创建一个新聊天等同于已取得 ACTIVE：
 
-1. 旧 Main 停止新派发，协调活动 Worker，并 checkpoint 五账本、可选 `THREADS.json`、`STRATEGY.json` 与 Skill Registry/Lock 的完整 fingerprints；Strategy 语义 context、Capability/Skill bindings 和 pending sync 也必须冻结供 Worker 对账；
+1. 旧 Main 停止新派发，协调活动 Worker，并 checkpoint 五账本、可选 `THREADS.json`、`STRATEGY.json`、Memory 与 Skill Registry/Lock 的完整 fingerprints；Strategy 语义 context、相关 Memory slice、Capability/Skill bindings 和 pending sync 也必须冻结供 Worker 对账；
 2. `offer-handoff` 冻结全部 source fingerprints 后释放写锁；
-3. 新 Main 先读取/inspect Strategy 并恢复 Gate/Autonomy/pending obligations，再按 project phase 读取五账本、AGENTS、SKILLS/SKILL_LOCK、THREADS、Workstreams，以目标 logical ID 和 expected state SHA claim；
+3. 新 Main 先读取/inspect Strategy 并恢复 Gate/Autonomy/pending obligations，再按 project phase 读取五账本、Memory current summary/index、AGENTS、SKILLS/SKILL_LOCK、THREADS、Workstreams，以目标 logical ID 和 expected state SHA claim；Archive 只在相关查询或 full verify 时读取；
 4. 新 token 生效后动态检测 runtime Thread 能力，按 exact runtime identity 对账 Persistent Threads，再继续 send；
 5. 旧 Main token、Registry mutation、项目级 Thread dispatch 和 canonical write authority 一并失效。
 

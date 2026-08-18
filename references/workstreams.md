@@ -10,6 +10,7 @@
 - [Capability 与 Skill 前置条件](#capability-与-skill-前置条件)
 - [Workstream 与 Lead](#workstream-与-lead)
 - [Workstream 与 Persistent Thread](#workstream-与-persistent-thread)
+- [Organization Learning](#organization-learning)
 - [状态与所有权](#状态与所有权)
 - [依赖分类](#依赖分类)
 - [Dependency Gate](#dependency-gate)
@@ -91,6 +92,12 @@ Lead 不拥有全局项目控制权，不得修改五份 canonical 账本、Supe
 Workstream Lead Thread 的长期存在不扩大 write scope，也不让它修改全局 ROADMAP、DECISIONS、STATUS、Supervisor 或 Thread Registry。Lead 可在 `CAN_CREATE_SUBAGENTS=true`、slots/深度/范围明确时使用有界 Task subagent；不得自行创建第二个 Persistent Lead Thread。
 
 Persistent Thread 的 baseline 落后时先 `STATE_SYNC`。Strategy 存在时，Worker baseline 绑定语义 `STRATEGY_CONTEXT_REVISION/SHA256`，不绑定会因 Gate/report 元数据改变的完整 Strategy SHA；Supervisor 仍用完整 Strategy revision/SHA 阻止 stale Main。handoff predecessor、archived、duplicate-primary、wrong-project 或旧 Strategy context Thread 的输出不得进入 Workstream acceptance。
+
+## Organization Learning
+
+Workstream 当前 owner、任务、依赖、review debt 和阶段状态仍属于 ROADMAP/AGENTS/STATUS，不迁入 Memory 取代当前真相。只有 Integration/Acceptance 已完成的 Task Outcome、已处置的协作模式、Team Pattern、Review Debt 结果或 Thread Health 事件，才由 ACTIVE Main 作为结构化历史证据写入 [organization-memory.md](organization-memory.md)。
+
+路由下一项工作时可查询相同 workstream/task type/capability 的 context-specific Agent/Team evidence；Team success 不自动全部归 Lead，UPSTREAM/COORDINATION/STRATEGY_CHANGE/EXTERNAL/THREAD_CONTEXT/UNKNOWN failure 不处罚某个 Agent。历史只影响选择与 Reviewer 强度，不扩大 Workstream scope、并行授权或 Integration Gate。
 
 ## 状态与所有权
 

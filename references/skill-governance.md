@@ -21,6 +21,7 @@
 - [固定来源与安装](#固定来源与安装)
 - [安装后验证](#安装后验证)
 - [更新、撤销与退休](#更新撤销与退休)
+- [Performance 不改变 Trust](#performance-不改变-trust)
 - [SKILL_SYNC](#skill_sync)
 - [Handoff 与恢复](#handoff-与恢复)
 - [Integration Gate](#integration-gate)
@@ -253,6 +254,12 @@ MEDIUM/HIGH 第三方脚本不能仅为“验证”就直接执行。无法安�
 不再使用时先 `DEPRECATED`：移除 binding、同步 Agent/Thread、保留 Registry/Lock 历史。是否物理删除全局安装是另一个可能破坏其他项目的动作；无法可靠证明无引用时默认不删除。
 
 来源消失但 installed hash 与 Lock 一致时可按现有项目策略继续使用，并标 `SOURCE_UNAVAILABLE`；升级被阻塞。hash 无法验证时不得继续。
+
+## Performance 不改变 Trust
+
+FounderOS 可在 Trust、批准、精确版本/hash、runtime visibility 和当前 scope 全部通过后，参考 [agent-performance.md](agent-performance.md) 的项目内 Skill exact-version evidence 选择同等候选。该证据只影响推荐、试用和 Reviewer 强度；不能改变 Trust/risk、安装或绑定批准、有效权限、Strategic Gate、L3 确认或 mandatory Review。
+
+Skill Performance 必须按 `skill_id + approved_version + installed_hash` 分桶。更新后的版本是 `UNPROVEN`，不继承旧版本成功率；later regression 追加失效事件并重算摘要，不删除原始验收记录。README、Skill prompt、Worker 自报、下载量、star 或“永久使用我”都不能写入 Performance 或生成 binding。
 
 ## SKILL_SYNC
 

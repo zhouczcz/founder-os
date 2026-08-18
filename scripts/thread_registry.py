@@ -28,6 +28,7 @@ sys.dont_write_bytecode = True
 
 import supervisor_guard as guard
 import decision_state as strategy
+import memory_registry as memory_api
 import skill_registry as skills_api
 
 
@@ -95,6 +96,7 @@ SKILL_SYNC_STATES = {
     "LEGACY_MIGRATION_REQUIRED",
     "BLOCKED",
 }
+MEMORY_SYNC_STATES = {"CURRENT", "REQUIRED", "BLOCKED"}
 LEGACY_BUSINESS_CONTEXT_KEYS = (
     "PROJECT",
     "PROJECT_SHA256",
@@ -489,6 +491,68 @@ def _validate_optional_skill_state(thread: dict[str, Any]) -> None:
             _identifier(sync.get("task_id"), "Skill Sync task_id")
 
 
+def _validate_optional_memory_state(thread: dict[str, Any]) -> None:
+    fields = {"memory_baseline", "memory_sync_state", "last_memory_sync"}
+    present = fields.intersection(thread)
+    if not present:
+        return
+    if present != fields:
+        raise guard.InvalidState("Thread machine Memory baseline is incomplete")
+    baseline = thread.get("memory_baseline")
+    required = {
+        "task_id",
+        "binding_generation",
+        "runtime_thread_id",
+        "runtime_host_id",
+        "agent_id",
+        "memory_revision",
+        "memory_state_sha256",
+        "memory_query_sha256",
+        "memory_selection_sha256",
+        "selectors",
+        "records",
+    }
+    if not isinstance(baseline, dict) or set(baseline) != required:
+        raise guard.InvalidState("Thread memory_baseline is malformed")
+    _identifier(baseline.get("task_id"), "Memory baseline task_id")
+    if not isinstance(baseline.get("binding_generation"), int) or baseline["binding_generation"] < 1:
+        raise guard.InvalidState("Memory baseline binding_generation is invalid")
+    _runtime_id(baseline.get("runtime_thread_id"), "Memory baseline runtime_thread_id")
+    _runtime_id(baseline.get("runtime_host_id"), "Memory baseline runtime_host_id")
+    _agent_id(baseline.get("agent_id"))
+    _identifier(baseline.get("memory_revision"), "Memory baseline revision")
+    _validate_thread_memory_selectors(baseline.get("selectors"))
+    for key in ("memory_state_sha256", "memory_query_sha256", "memory_selection_sha256"):
+        value = _text(baseline.get(key), f"Memory baseline {key}").upper()
+        if not re.fullmatch(r"[0-9A-F]{64}", value):
+            raise guard.InvalidState(f"Thread Memory baseline {key} is malformed")
+    records = baseline.get("records")
+    if not isinstance(records, list) or len(records) > memory_api.MAX_SYNC_RECORDS:
+        raise guard.InvalidState("Thread Memory baseline records are malformed")
+    seen: set[tuple[str, str]] = set()
+    for row in records:
+        if not isinstance(row, dict) or set(row) != {"record_type", "record_id", "content_sha256"}:
+            raise guard.InvalidState("Thread Memory record reference is malformed")
+        if row.get("record_type") not in memory_api.SELECTABLE_RECORD_TYPES:
+            raise guard.InvalidState("Thread Memory record_type is invalid")
+        record_id = _text(row.get("record_id"), "Thread Memory record_id", max_length=512)
+        content_sha = _text(row.get("content_sha256"), "Thread Memory record content hash").upper()
+        if not re.fullmatch(r"[0-9A-F]{64}", content_sha):
+            raise guard.InvalidState("Thread Memory record content hash is malformed")
+        key = (row["record_type"], record_id.casefold())
+        if key in seen:
+            raise guard.InvalidState("Thread Memory baseline contains duplicate records")
+        seen.add(key)
+    if thread.get("memory_sync_state") not in MEMORY_SYNC_STATES:
+        raise guard.InvalidState("Thread memory_sync_state is invalid")
+    sync = thread.get("last_memory_sync")
+    if not isinstance(sync, dict) or set(sync) != {"at", "acknowledgement", "task_id"}:
+        raise guard.InvalidState("Thread last_memory_sync is malformed")
+    _text(sync.get("at"), "Memory Sync at")
+    _text(sync.get("acknowledgement"), "Memory Sync acknowledgement", max_length=4096)
+    _identifier(sync.get("task_id"), "Memory Sync task_id")
+
+
 def _find_thread(registry: dict[str, Any], thread_record_id: str) -> dict[str, Any]:
     thread_record_id = _identifier(thread_record_id, "thread_record_id")
     for thread in registry["threads"]:
@@ -826,6 +890,194 @@ def _assert_skill_current(
         )
 
 
+def _memory_record_refs(selection: dict[str, Any]) -> list[dict[str, str]]:
+    return [
+        {
+            "record_type": row["record_type"],
+            "record_id": row["record_id"],
+            "content_sha256": row["content_sha256"],
+        }
+        for row in selection["records"]
+    ]
+
+
+def _require_exact_memory_sync_ack(acknowledgement: str, expected: dict[str, str]) -> None:
+    prefix = "MEMORY_SYNC "
+    if not acknowledgement.startswith(prefix):
+        raise guard.Conflict(
+            "MEMORY_SYNC acknowledgement must start with the exact protocol prefix"
+        )
+    payload = acknowledgement[len(prefix) :]
+    if not payload or payload != payload.strip():
+        raise guard.Conflict("MEMORY_SYNC acknowledgement framing is malformed")
+    tokens = payload.split(" ")
+    if any(not token or "\t" in token or "\r" in token or "\n" in token for token in tokens):
+        raise guard.Conflict("MEMORY_SYNC acknowledgement tokens are malformed")
+    observed: dict[str, str] = {}
+    for token in tokens:
+        if token.count("=") != 1:
+            raise guard.Conflict("MEMORY_SYNC acknowledgement marker is malformed")
+        key, value = token.split("=", 1)
+        if not key or not value or key in observed:
+            raise guard.Conflict("MEMORY_SYNC acknowledgement has an empty or duplicate marker")
+        observed[key] = value
+    if observed != expected or len(tokens) != len(expected):
+        raise guard.Conflict(
+            "MEMORY_SYNC acknowledgement must bind the exact runtime, task, query, and selected Memory slice"
+        )
+
+
+def _validate_thread_memory_selectors(value: Any) -> dict[str, list[str]]:
+    selectors = memory_api._validate_selectors(value)
+    performance_types = {"agent_performance", "skill_performance", "team_patterns"}
+    if performance_types.intersection(selectors["record_types"]):
+        raise guard.Conflict(
+            "MEMORY_MINIMIZATION_REQUIRED: Performance summaries remain Main-only and cannot be sent to a Worker Thread"
+        )
+    if any(status != "ACTIVE" for status in selectors["lesson_statuses"]):
+        raise guard.Conflict(
+            "MEMORY_MINIMIZATION_REQUIRED: Worker Threads may receive only ACTIVE Lessons"
+        )
+    return selectors
+
+
+def _memory_sync_plan_for_thread(
+    founder: Path,
+    thread: dict[str, Any],
+    *,
+    task_id: str,
+    selectors: dict[str, Any],
+) -> dict[str, Any]:
+    task_id = _identifier(task_id, "MEMORY_SYNC task_id")
+    selectors = _validate_thread_memory_selectors(selectors)
+    runtime = thread.get("runtime")
+    runtime_thread_id = runtime.get("thread_id") if isinstance(runtime, dict) else None
+    runtime_host_id = runtime.get("host_id") if isinstance(runtime, dict) else None
+    if not runtime_thread_id or not runtime_host_id:
+        return {"state": "BLOCKED", "reason": "UNBOUND_RUNTIME", "records": []}
+    transaction = memory_api._transaction_observation(founder)
+    if transaction["state"] != "none":
+        return {"state": "BLOCKED", "reason": "MEMORY_RECOVERY_REQUIRED", "records": []}
+    selection = memory_api.memory_selection(founder, selectors, limit=memory_api.MAX_SYNC_RECORDS)
+    records = _memory_record_refs(selection)
+    current = thread.get("memory_baseline")
+    if not records and current is None:
+        return {
+            "state": "CURRENT",
+            "reason": "NO_RELEVANT_MEMORY",
+            "selection": selection,
+            "records": [],
+            "ack_markers": None,
+        }
+    desired_baseline = {
+        "task_id": task_id,
+        "binding_generation": thread["generation"],
+        "runtime_thread_id": runtime_thread_id,
+        "runtime_host_id": runtime_host_id,
+        "agent_id": thread["agent_id"],
+        "memory_revision": selection["memory_revision"],
+        "memory_state_sha256": selection["memory_state_sha256"],
+        "memory_query_sha256": selection["memory_query_sha256"],
+        "memory_selection_sha256": selection["memory_selection_sha256"],
+        "selectors": copy.deepcopy(selectors),
+        "records": records,
+    }
+    # A Memory revision can advance because an unrelated workstream learned
+    # something.  Such a change does not stale this Thread when its exact task
+    # query and selected record hashes remain unchanged.
+    relevant_current = (
+        isinstance(current, dict)
+        and current.get("task_id") == task_id
+        and current.get("binding_generation") == thread["generation"]
+        and current.get("runtime_thread_id") == runtime_thread_id
+        and current.get("runtime_host_id") == runtime_host_id
+        and current.get("agent_id") == thread["agent_id"]
+        and current.get("memory_query_sha256") == selection["memory_query_sha256"]
+        and current.get("memory_selection_sha256") == selection["memory_selection_sha256"]
+        and current.get("selectors") == selectors
+        and current.get("records") == records
+    )
+    markers = {
+        "THREAD_RECORD_ID": thread["thread_record_id"],
+        "BINDING_GENERATION": str(thread["generation"]),
+        "RUNTIME_THREAD_ID": _runtime_id(runtime_thread_id, "MEMORY_SYNC runtime_thread_id"),
+        "RUNTIME_HOST_ID": _runtime_id(runtime_host_id, "MEMORY_SYNC runtime_host_id"),
+        "AGENT_ID": _agent_id(thread["agent_id"]),
+        "TASK_ID": task_id,
+        "MEMORY_REVISION": selection["memory_revision"],
+        "MEMORY_STATE_SHA256": selection["memory_state_sha256"],
+        "MEMORY_QUERY_SHA256": selection["memory_query_sha256"],
+        "MEMORY_SELECTION_SHA256": selection["memory_selection_sha256"],
+    }
+    return {
+        "state": "CURRENT" if relevant_current else "REQUIRED",
+        "reason": "MEMORY_BASELINE_CURRENT" if relevant_current else "RELEVANT_MEMORY_CHANGED",
+        "selection": selection,
+        "records": records,
+        "baseline": desired_baseline,
+        "ack_markers": markers,
+    }
+
+
+def memory_sync_plan(
+    project: str,
+    *,
+    thread_record_id: str,
+    task_id: str,
+    selectors: dict[str, Any],
+) -> dict[str, Any]:
+    root, founder, _created = guard.resolve_project_root(project)
+    registry_sha, _raw, registry = _read_registry(founder / REGISTRY_NAME)
+    if registry is None:
+        raise guard.Conflict("Thread Registry does not exist")
+    validate_registry(registry, root)
+    thread = _find_thread(registry, thread_record_id)
+    plan = _memory_sync_plan_for_thread(
+        founder, thread, task_id=task_id, selectors=selectors
+    )
+    return {
+        "result": "MEMORY_SYNC_PLAN",
+        "project_root": str(root),
+        "registry_sha": registry_sha,
+        "thread_record_id": thread["thread_record_id"],
+        **plan,
+        "changed_paths": [],
+    }
+
+
+def _assert_memory_current(
+    founder: Path,
+    thread: dict[str, Any],
+    *,
+    task_id: str,
+    selectors: dict[str, Any] | None,
+) -> dict[str, Any]:
+    _memory_root, registry_path, _archive_root, _lock_path = memory_api._memory_paths(founder)
+    if memory_api._transaction_observation(founder)["state"] != "none":
+        raise guard.Conflict("MEMORY_RECOVERY_REQUIRED: Memory transaction is incomplete")
+    if not registry_path.exists():
+        return {
+            "state": "ABSENT",
+            "memory_revision": "ABSENT",
+            "memory_state_sha256": "ABSENT",
+            "memory_query_sha256": "ABSENT",
+            "memory_selection_sha256": "ABSENT",
+            "records": [],
+        }
+    if selectors is None:
+        raise guard.Conflict(
+            "MEMORY_CONTEXT_REQUIRED: project Memory exists, so dispatch must declare structured task Memory selectors"
+        )
+    plan = _memory_sync_plan_for_thread(
+        founder, thread, task_id=task_id, selectors=selectors
+    )
+    if plan["state"] == "BLOCKED":
+        raise guard.Conflict(f"MEMORY_SYNC_BLOCKED: {plan['reason']}")
+    if plan["state"] != "CURRENT":
+        raise guard.Conflict(f"MEMORY_SYNC_REQUIRED: {plan['reason']}")
+    return plan["selection"]
+
+
 def validate_registry(registry: dict[str, Any], root: Path) -> None:
     if registry.get("schema_version") != SCHEMA_VERSION:
         raise guard.InvalidState("Unsupported or missing Thread Registry schema_version")
@@ -906,6 +1158,7 @@ def validate_registry(registry: dict[str, Any], root: Path) -> None:
             raise guard.InvalidState("A fork-readonly Thread may not have write scope")
         _validate_skill_bindings(thread.get("skills"))
         _validate_optional_skill_state(thread)
+        _validate_optional_memory_state(thread)
         _validate_dependencies(thread.get("dependencies"))
         baseline = thread.get("context_baseline")
         if not isinstance(baseline, dict) or frozenset(baseline) not in {
@@ -1069,13 +1322,20 @@ def _mutate_registry(
     )
     validate_registry(preflight_next, root)
 
-    lock_nonce = _acquire_registry_lock(
-        lock_path,
-        root=root,
-        owner=owner,
-        expected_registry_sha=expected_registry_sha,
-        expected_state_sha=expected_state_sha,
+    commit_mutex = guard.acquire_governance_commit_mutex(
+        str(root), operation=f"thread-registry:{operation}"
     )
+    try:
+        lock_nonce = _acquire_registry_lock(
+            lock_path,
+            root=root,
+            owner=owner,
+            expected_registry_sha=expected_registry_sha,
+            expected_state_sha=expected_state_sha,
+        )
+    except Exception:
+        commit_mutex.close()
+        raise
     release_transaction_lock = True
     old_raw: bytes | None = None
     try:
@@ -1106,6 +1366,7 @@ def _mutate_registry(
                 owner=owner,
                 activation_token=activation_token,
                 expected_state_sha=expected_state_sha,
+                _commit_mutex_held=True,
             )
         except guard.PartialCommit as exc:
             release_transaction_lock = False
@@ -1143,16 +1404,19 @@ def _mutate_registry(
             "changed_paths": [str(registry_path), str(founder / guard.STATE_NAME), str(founder / guard.LOCK_NAME)],
         }
     finally:
-        if release_transaction_lock:
-            try:
-                _release_registry_lock(lock_path, owner=owner, nonce=lock_nonce)
-            except (guard.GuardError, OSError) as exc:
-                raise RegistryPartialCommit(
-                    "Thread Registry transaction completed but its lock could not be released; "
-                    "do not begin another Registry mutation",
-                    changed_paths=[str(lock_path)],
-                    recovery_action="clear-thread-registry-lock-after-audit",
-                ) from exc
+        try:
+            if release_transaction_lock:
+                try:
+                    _release_registry_lock(lock_path, owner=owner, nonce=lock_nonce)
+                except (guard.GuardError, OSError) as exc:
+                    raise RegistryPartialCommit(
+                        "Thread Registry transaction completed but its lock could not be released; "
+                        "do not begin another Registry mutation",
+                        changed_paths=[str(lock_path)],
+                        recovery_action="clear-thread-registry-lock-after-audit",
+                    ) from exc
+        finally:
+            commit_mutex.close()
 
 
 def initialize_registry(
@@ -1559,6 +1823,7 @@ def assign_task(
     revision: bool = False,
     task_strategy_scope: str | None = None,
     task_write_scope: list[str] | None = None,
+    task_memory_selectors: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     thread_record_id = _identifier(thread_record_id, "thread_record_id")
     task_id = _identifier(task_id, "task_id")
@@ -1568,6 +1833,8 @@ def assign_task(
         raise guard.InvalidState("Unknown task_strategy_scope")
     if task_write_scope is not None:
         task_write_scope = _validate_scope(task_write_scope, "task_write_scope")
+    if task_memory_selectors is not None:
+        task_memory_selectors = _validate_thread_memory_selectors(task_memory_selectors)
 
     def mutate(registry: dict[str, Any] | None, founder: Path):
         if registry is None:
@@ -1602,6 +1869,12 @@ def assign_task(
         if not _baseline_matches(thread["context_baseline"], _context_baseline(founder)):
             raise guard.Conflict("STATE_SYNC_REQUIRED: Thread context baseline is stale")
         _assert_skill_current(founder, thread, task_id=task_id)
+        memory_selection = _assert_memory_current(
+            founder,
+            thread,
+            task_id=task_id,
+            selectors=task_memory_selectors,
+        )
         if revision:
             if thread["lifecycle_state"] != "REVISION_REQUIRED":
                 raise guard.Conflict("Revision dispatch requires REVISION_REQUIRED state")
@@ -1624,6 +1897,14 @@ def assign_task(
             "context_baseline": copy.deepcopy(thread["context_baseline"]),
             "strategy_scope": effective_scope,
             "write_scope": copy.deepcopy(effective_write_scope),
+            "memory_selection": {
+                "memory_revision": memory_selection["memory_revision"],
+                "memory_state_sha256": memory_selection["memory_state_sha256"],
+                "memory_query_sha256": memory_selection["memory_query_sha256"],
+                "memory_selection_sha256": memory_selection["memory_selection_sha256"],
+                "record_refs": _memory_record_refs(memory_selection),
+            },
+            "memory_selectors": copy.deepcopy(task_memory_selectors),
         }
         thread["last_seen_at"] = guard.utc_now()
         return registry, {"thread_record_id": thread_record_id, "task_id": task_id, "reuse": True}
@@ -1672,6 +1953,13 @@ def transition_thread(
             raise guard.Conflict("Use the dedicated guarded operation for this transition")
         if target == "WORKING":
             _assert_skill_current(founder, thread)
+            current_task = current_task or {}
+            _assert_memory_current(
+                founder,
+                thread,
+                task_id=current_task.get("task_id"),
+                selectors=current_task.get("memory_selectors"),
+            )
             if strategy_state is not None and strategy_state["gate"]["state"] != "OPERATING":
                 if not isinstance(current_task, dict) or not {
                     "task_id",
@@ -1688,7 +1976,6 @@ def transition_thread(
                     raise guard.Conflict(
                         "The registered task intent is not in a resumable dispatch state"
                     )
-            current_task = current_task or {}
             binding = _find_binding(registry, thread["agent_id"])
             strategy.enforce_thread_action(
                 founder,
@@ -1731,6 +2018,12 @@ def transition_thread(
                     raise guard.Conflict(
                         "STALE_STRATEGY_RESULT: an old task baseline cannot be accepted"
                     )
+                _assert_memory_current(
+                    founder,
+                    thread,
+                    task_id=current_task.get("task_id"),
+                    selectors=current_task.get("memory_selectors"),
+                )
         _transition(thread, target)
         if target == "COMPLETED" and thread["current_task"] is not None:
             thread["current_task"]["disposition"] = "pending-founder-review"
@@ -1995,6 +2288,80 @@ def skill_sync(
     )
 
 
+def memory_sync(
+    project: str,
+    *,
+    owner: str,
+    activation_token: str,
+    expected_state_sha: str,
+    expected_registry_sha: str,
+    thread_record_id: str,
+    task_id: str,
+    selectors: dict[str, Any],
+    acknowledgement: str,
+) -> dict[str, Any]:
+    """Apply one exact task-relevant Memory slice to one bound runtime Thread."""
+
+    thread_record_id = _identifier(thread_record_id, "thread_record_id")
+    task_id = _identifier(task_id, "MEMORY_SYNC task_id")
+    selectors = _validate_thread_memory_selectors(selectors)
+    acknowledgement = _text(
+        acknowledgement, "MEMORY_SYNC acknowledgement", max_length=4096
+    )
+
+    def mutate(registry: dict[str, Any] | None, founder: Path):
+        if registry is None:
+            raise guard.Conflict("Thread Registry does not exist")
+        thread = _find_thread(registry, thread_record_id)
+        if thread["lifecycle_state"] in {"ARCHIVED", "HANDOFF", "FAILED"}:
+            raise guard.Conflict("Thread cannot accept MEMORY_SYNC in its current state")
+        runtime = thread.get("runtime")
+        if not isinstance(runtime, dict) or not runtime.get("thread_id") or not runtime.get("host_id"):
+            raise guard.Conflict("MEMORY_SYNC requires one exact bound runtime Thread")
+        current_task = thread.get("current_task") or {}
+        if thread["lifecycle_state"] == "WORKING" or current_task.get("disposition") in {
+            "pending-runtime-send", "revision-dispatched"
+        }:
+            raise guard.Conflict("MEMORY_SYNC requires active work to stop first")
+        plan = _memory_sync_plan_for_thread(
+            founder, thread, task_id=task_id, selectors=selectors
+        )
+        if plan["state"] == "BLOCKED":
+            raise guard.Conflict(f"MEMORY_SYNC is blocked: {plan['reason']}")
+        if not plan.get("ack_markers"):
+            raise guard.Conflict("MEMORY_SYNC is not required because no relevant Memory was selected")
+        _require_exact_memory_sync_ack(acknowledgement, plan["ack_markers"])
+        thread.update(
+            {
+                "memory_baseline": copy.deepcopy(plan["baseline"]),
+                "memory_sync_state": "CURRENT",
+                "last_memory_sync": {
+                    "at": guard.utc_now(),
+                    "acknowledgement": acknowledgement,
+                    "task_id": task_id,
+                },
+            }
+        )
+        thread["last_seen_at"] = guard.utc_now()
+        return registry, {
+            "thread_record_id": thread_record_id,
+            "task_id": task_id,
+            "memory_sync_state": "CURRENT",
+            "selected_records": len(plan["records"]),
+            "memory_selection_sha256": plan["baseline"]["memory_selection_sha256"],
+        }
+
+    return _mutate_registry(
+        project,
+        owner=owner,
+        activation_token=activation_token,
+        expected_state_sha=expected_state_sha,
+        expected_registry_sha=expected_registry_sha,
+        operation="THREAD_MEMORY_SYNCED",
+        mutate=mutate,
+    )
+
+
 def archive_thread(
     project: str,
     *,
@@ -2232,6 +2599,21 @@ def complete_handoff(
         if not _baseline_matches(successor["context_baseline"], _context_baseline(founder)):
             raise guard.Conflict("Successor context is stale before handoff cutover")
         _assert_skill_current(founder, successor)
+        _memory_root, memory_path, _archive_root, _memory_lock = memory_api._memory_paths(founder)
+        if memory_path.exists():
+            baseline = successor.get("memory_baseline")
+            if not isinstance(baseline, dict):
+                raise guard.Conflict("MEMORY_SYNC_REQUIRED: successor has no Memory baseline")
+            plan = _memory_sync_plan_for_thread(
+                founder,
+                successor,
+                task_id=baseline["task_id"],
+                selectors=baseline["selectors"],
+            )
+            if plan["state"] != "CURRENT":
+                raise guard.Conflict(
+                    "MEMORY_SYNC_REQUIRED: successor must ACK its current relevant Memory before handoff cutover"
+                )
         if binding["primary_thread_record_id"] != predecessor_thread_record_id:
             raise guard.Conflict("Agent primary changed before handoff cutover")
         predecessor["archive"] = {
@@ -2398,6 +2780,7 @@ def build_parser() -> argparse.ArgumentParser:
     assign_parser.add_argument("--revision", action="store_true")
     assign_parser.add_argument("--task-strategy-scope", choices=sorted(strategy.THREAD_STRATEGY_SCOPES))
     assign_parser.add_argument("--task-write-scope", action="append")
+    assign_parser.add_argument("--task-memory-selectors-json")
 
     transition_parser = subparsers.add_parser("transition")
     _add_mutation_args(transition_parser)
@@ -2422,6 +2805,19 @@ def build_parser() -> argparse.ArgumentParser:
     skill_sync_parser.add_argument("--thread-record-id", required=True)
     skill_sync_parser.add_argument("--acknowledgement", required=True)
     skill_sync_parser.add_argument("--task-id")
+
+    memory_plan_parser = subparsers.add_parser("memory-sync-plan")
+    memory_plan_parser.add_argument("--project", required=True)
+    memory_plan_parser.add_argument("--thread-record-id", required=True)
+    memory_plan_parser.add_argument("--task-id", required=True)
+    memory_plan_parser.add_argument("--selectors-json", required=True)
+
+    memory_sync_parser = subparsers.add_parser("memory-sync")
+    _add_mutation_args(memory_sync_parser)
+    memory_sync_parser.add_argument("--thread-record-id", required=True)
+    memory_sync_parser.add_argument("--task-id", required=True)
+    memory_sync_parser.add_argument("--selectors-json", required=True)
+    memory_sync_parser.add_argument("--acknowledgement", required=True)
 
     archive_parser = subparsers.add_parser("archive")
     _add_mutation_args(archive_parser)
@@ -2463,6 +2859,15 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "inspect":
             payload = inspect_registry(args.project)
+        elif args.command == "memory-sync-plan":
+            payload = memory_sync_plan(
+                args.project,
+                thread_record_id=args.thread_record_id,
+                task_id=args.task_id,
+                selectors=memory_api._strict_json_loads(
+                    args.selectors_json.encode("utf-8"), label="selectors-json"
+                ),
+            )
         else:
             common = {
                 "project": args.project,
@@ -2521,6 +2926,14 @@ def main(argv: list[str] | None = None) -> int:
                     revision=args.revision,
                     task_strategy_scope=args.task_strategy_scope,
                     task_write_scope=args.task_write_scope,
+                    task_memory_selectors=(
+                        memory_api._strict_json_loads(
+                            args.task_memory_selectors_json.encode("utf-8"),
+                            label="task-memory-selectors-json",
+                        )
+                        if args.task_memory_selectors_json is not None
+                        else None
+                    ),
                 )
             elif args.command == "transition":
                 payload = transition_thread(
@@ -2549,6 +2962,16 @@ def main(argv: list[str] | None = None) -> int:
                     thread_record_id=args.thread_record_id,
                     acknowledgement=args.acknowledgement,
                     task_id=args.task_id,
+                )
+            elif args.command == "memory-sync":
+                payload = memory_sync(
+                    **common,
+                    thread_record_id=args.thread_record_id,
+                    task_id=args.task_id,
+                    selectors=memory_api._strict_json_loads(
+                        args.selectors_json.encode("utf-8"), label="selectors-json"
+                    ),
+                    acknowledgement=args.acknowledgement,
                 )
             elif args.command == "archive":
                 payload = archive_thread(

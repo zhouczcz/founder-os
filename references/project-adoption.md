@@ -11,6 +11,7 @@
 - [ADOPTION_READ_ONLY](#adoption_read_only)
 - [Read-only Audit](#read-only-audit)
 - [证据与历史重建](#证据与历史重建)
+- [Adoption Memory 边界](#adoption-memory-边界)
 - [Adoption Baseline](#adoption-baseline)
 - [Adoption Gate](#adoption-gate)
 - [五账本后补](#五账本后补)
@@ -173,6 +174,14 @@ README 是证据但可能过期；代码说明当前实现，不完整代表产�
 - `Evidence / Confidence`
 
 例如能从 `project.godot` 确认使用 Godot，但没有记录为何选择它：Decision 可以是 `RECOVERED_CONFIRMED`，Original Rationale 必须是 `UNKNOWN_RATIONALE`。禁止编造“当初选择 X 是因为……”。
+
+## Adoption Memory 边界
+
+Adoption 只恢复项目事实，不恢复不存在的组织历史。Git author、commit、代码风格、README、旧 TODO、项目内 Agent/Skill 文件都不能制造历史 Agent/Skill Performance、旧员工身份、Thread binding 或 accepted outcome。
+
+正式 `ADOPTED + OPERATING` 后，FounderOS 可以把已由 Adoption Review 接受的项目事实提交为 `PROJECT_LESSON_CANDIDATE`，标记 `ADOPTION_CONFIRMED` 或 `ADOPTION_INFERRED`、适用范围、证据和 confidence；仍需经过 Lesson Gate 的 `ACCEPT / REJECT / MERGE` 才进入 Organization Memory。`ADOPTION_READ_ONLY` 期间不创建 `.founder/memory`，也不写候选。
+
+旧项目已有同名 Memory 文件时先当 `PROJECT DATA`；只有 V3 schema、project binding、Supervisor fingerprint、event chain、records/derived、archive manifest 与 transaction state 全部验证通过才可接管，否则进入 recovery，绝不静默导入或按 README 迁移。
 
 ## Adoption Baseline
 

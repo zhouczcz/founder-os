@@ -2,81 +2,80 @@
 
 **简体中文** | [English](README.en.md)
 
-> 把模糊目标启动为可执行的新项目，也把既有、已完成或已发布项目安全接管为可持续维护的长期系统。
+> 先把项目问清楚、敢于反对错误方向，再由主管开启真实新对话把它完成。
 
-**FounderOS** 是一个面向 Codex 的“项目总管 / AI Chief of Staff”Skill。它既能从零启动产品、公司、游戏、App、网站及其他多阶段项目，也能按照 **Preserve before improve** 原则接管正在开发、已经完成或已经发布的既有项目。它尤其适合不熟悉目标领域、只希望提供目标、关键约束和重大决策的 Founder。
+**FounderOS** 是面向单人开发者的 Codex 项目主管。它先访谈并挑战项目方向，再给出方案和计划。用户确认计划及对话清单后，主管会像用户一样开启侧边栏可见的独立 Codex 项目对话（真实 AI Agent），向它们派工、等待结果、验收、返工并持续推进；只有短小的一次性工作才使用 subagent。
 
-FounderOS 不是独立 SaaS，也不会承诺脱离 Codex 自动经营公司。它在当前授权和运行时能力内担任唯一项目负责人：澄清方向、规划阶段、按需委派真实 AI Agent、验收结果、维护项目状态，并把重大方向、高成本、不可逆或对外承诺留给 Founder 决定。
+“主管、员工、招聘”只是便于理解的类比，不是企业管理流程。FounderOS 默认不运行复杂组织治理；高风险、多写入者、生产或正式审计场景才按需启用原有高级协议。用户负责想法和重大决定，项目主管负责独立判断、计划与交付。
 
 ## 它解决什么问题
 
-长期项目常见的失败不是“缺少一次回答”，而是：
+单人开发常见的失败不是“不会写代码”，而是：
 
-- 起点模糊，过早进入实现；
-- 用户不懂专业术语，却被迫替 AI 做所有专业选择；
-- 多个 Agent 各做各的，没有负责人、依赖关系或统一验收；
-- 新对话无法恢复项目背景，重复研究或覆盖既有成果；
-- 普通实现决策和重大方向决策没有清晰边界；
-- Agent 输出未经检查就被当成最终结论。
+- 想法还没问清楚，AI 就急着生成方案或开始实现；
+- 用户缺少完整计划，只能不断让 AI“继续”；
+- AI 为了顺从用户，沿着错误假设持续投入；
+- 多个 Agent 没有统一目标、依赖和验收；
+- 用户仍要亲自创建、切换和催促每一个工作对话；
+- 管理文件、轮询和重复上下文消耗超过实际项目工作；
+- 新对话无法用精炼状态恢复项目。
 
-FounderOS 把这些问题收束为一个带战略门禁、持久账本、明确委派和集成验收的项目运行循环。
+FounderOS 把这些问题收束为“访谈 → 质疑 → 简报确认 → 计划及对话清单确认 → 主管创建新对话 → 验收纠偏”的轻量闭环。
 
 ## 核心能力
 
 | 能力 | 作用 |
 | --- | --- |
-| Founder Discovery | 当目标仍存在多个实质方向时，进行有界探索，形成可比较候选和明确推荐 |
-| Direction Clarity + Strategic Gate | 方向清楚才 Bootstrap；重大方向变化先形成可审计选择，不用“继续推进”绕过门禁 |
-| L0–L3 影响分级 | 普通实现与战术决策可自治；战略选择按项目授权处理；执行级高影响动作始终要求明确批准 |
-| 项目级 Autonomy Profile | 记录 FounderOS 在实现、战术、战略和执行层分别拥有多大自主权 |
-| Existing Project Adoption | 先只读识别和建立基线，再在授权后接管既有、完成或已发布项目；默认保持行为，不擅自重构 |
-| 持久项目账本 | 使用 `.founder/` 保存目标、路线图、决策、Agent 与最新状态，让新对话可以恢复项目 |
-| 独立总管对话 | Bootstrap 或正式 Adoption 完成后，为 canonical 项目根创建一个真实 Codex 总管任务并用 Supervisor handoff 交接；Portfolio 不按子项目泛滥创建 |
-| 真实 Agent / Thread 管理 | 区分一次性 Task Agent 与长期 Persistent Role；复用优先，用 STATE_SYNC、SKILL_SYNC 和会话体积预检防止陈旧或超大上下文；员工身份保留但 Thread 可主动轮换 |
-| Capability / Skill 治理 | 先规划能力，再按需发现、审计、固定版本、批准和绑定 Skill；`Installed != Trusted != Approved != Bound`，绑定也不扩大原有权限 |
-| Workstream 与 Integration Gate | 管理依赖、并行写入边界、跨线集成、验收和返工 |
-| Single Active Supervisor | 同一项目只允许一个 ACTIVE FounderOS，使用 fencing、写锁和状态指纹降低并发污染风险 |
-| 确定性辅助脚本 | 有界采集 Adoption baseline 与 Thread transcript 体积信号，并对战略状态、Supervisor、Thread / Skill Registry、CAS 和关键转换提供机器守卫 |
+| 项目访谈 | 逐轮询问真正影响项目方向的问题，形成可确认的 Project Brief，而不是机械问卷 |
+| 独立判断 | 区分用户偏好、证据和主管推荐；给出反方观点、替代方案、失败预演和重估条件 |
+| 方案与计划 | 比较实质不同的路径，输出里程碑、任务、依赖、风险、Agent 角色和可观察验收标准 |
+| 真实新对话执行 | 计划中列出准备开启的对话；确认后由主管创建用户可见的 Codex 任务，统一派工、等待、验收和返工 |
+| 持续纠偏 | 证据推翻假设时停止受影响工作，独立分析继续、调整或放弃，并对重大方向重新请用户决定 |
+| 轻量项目状态 | 默认只维护 Project、Roadmap、Status，以及按需的 Decisions 和 Agents；未变化内容不重复读取或改写 |
+| Existing Project Adoption | 对复杂既有项目先只读理解和保留行为，再决定如何接管或改进 |
+| 高级保障模式 | 仅在高风险、多写入者或正式审计时按需启用 Delegation-First、Supervisor Execution Firewall、Specialist 与 Artifact ownership 等旧协议 |
+| 上下文预算 | 批量执行、事件驱动等待、大输出落盘、主动轮换超长 Thread，避免管理成本压过项目工作 |
 
 ## 工作方式
 
 ```mermaid
 flowchart TD
-    A["Founder 提供目标、约束或接管指令"] --> B{"Entry Classification"}
-    B -->|NEW_PROJECT| C["Direction Clarity Check"]
-    C -->|CLEAR| D["Project Bootstrap"]
-    C -->|AMBIGUOUS| E["有界 Founder Discovery"]
-    E --> F["Strategic Choice Gate"]
-    F -->|方向获授权| D
-    B -->|EXISTING_ACTIVE_PROJECT / COMPLETED_PROJECT / SHIPPED_PROJECT| G["ADOPTION_READ_ONLY"]
-    B -->|UNKNOWN| L["保持只读并继续有界调查"]
-    B -->|有效 .founder/| M["恢复现有 FounderOS 状态"]
-    G --> H["现状重建、Baseline 与 Adoption Review"]
-    H -->|允许正式接管| I["Canonical State + Adoption Gate"]
-    D --> N["创建/复用独立总管任务并交接"]
-    I --> N
-    N --> J["规划、执行或按需委派"]
-    J --> K["验收、Integration Gate 与状态更新"]
-    K --> J
+    A["用户描述项目想法"] --> B["DISCOVERY：访谈并补齐项目理解"]
+    B --> C["独立质疑、替代方案与失败预演"]
+    C --> D{"用户确认 Project Brief？"}
+    D -->|否| B
+    D -->|是| E["PLAN_REVIEW：推荐方案与完整计划"]
+    E --> F{"用户确认计划及新对话清单？"}
+    F -->|否| E
+    F -->|是| G["主管开启或复用用户可见的新 Codex 对话"]
+    G --> H["实施、测试、主管验收与返工"]
+    H --> I{"证据是否推翻计划假设？"}
+    I -->|是| C
+    I -->|否| J["更新一次状态并继续下一任务"]
+    J --> H
 ```
 
 默认原则是：
 
-- 普通、可逆、低风险的专业判断由 FounderOS 或专业 Agent 完成并记录理由；
-- 重大方向、不可逆操作、高成本、外部承诺和生产级高影响动作升级给 Founder；
-- 需要专业能力、独立研究或独立复核时才创建 Agent；
-- 所有 Agent 结果都由 FounderOS 阅读、验收，必要时返工或交给 Reviewer；
-- 互相独立的只读研究可以并行，冲突写入和强依赖任务串行推进。
+- 新项目先完成访谈和 Project Brief 确认，再确认方案与计划；
+- 主管必须提出反对意见和独立推荐，不因用户坚持就伪造支持证据；
+- 计划确认同时授权清单中的新对话；主管亲自创建并只传最小必要上下文；
+- 大型独立交付使用可见 Worker 对话，短小一次性工作才使用 subagent；
+- 所有 Agent 结果都由主管检查真实产物和验证证据，必要时要求原 Agent 返工；
+- 普通低风险调整自主处理，重大方向、不可逆、高成本或生产动作交给用户决定；
+- 一个已验收任务只更新一次项目状态，不轮询无变化进度。
 
 ## 适用场景
 
-- 你有一个长期目标，但不知道应先做市场、产品、技术还是验证；
+- 你有一个项目想法，但不知道怎样把它问清楚、判断方向并拆成完整计划；
+- 你担心 AI 只会迎合你，即使假设错误也沿着错误方向继续；
 - 你要接管没有 `.founder/` 的旧代码库，并希望先理解现状、保留行为、再决定是否改进；
 - 项目已经完成或上线，今后主要需要维护、修 Bug、兼容性更新和谨慎发布；
-- 你是单人 Founder，希望 AI 负责拆解、协调和持续推进；
+- 你是单人开发者，希望项目主管负责拆解、协调和持续推进；
 - 项目需要多个专业 Agent，但不希望自己管理它们；
+- 你希望主管像你一样开启、切换并推进多个真实 Codex 对话；
 - 项目会跨越多次 Codex 对话，需要可靠恢复状态；
-- 你希望 AI 对普通专业问题主动判断，同时保留重大决策权；
+- 你希望 AI 独立判断而不是盲目同意，同时保留重大决策权；
 - 你需要清晰区分“计划中”“已委派”“已返回”“已验收”和“已完成”。
 
 以下情况通常不需要 FounderOS：一次性的简单问答、很小且无需持续状态的修改，或只需要某个单一专业 Skill 的任务。
@@ -165,6 +164,7 @@ FounderOS 在被管理项目的根目录维护五份核心账本：
 - `.founder/STRATEGY.json`：Direction、候选、Strategic Gate、Autonomy Profile 与同步义务；
 - `.founder/ACTIVE_SUPERVISOR.json`：唯一 ACTIVE FounderOS 的身份、状态和 fencing；
 - `.founder/THREADS.json`：Persistent Agent 与真实 Codex Thread 的 binding 和生命周期；
+- `.founder/memory/MEMORY.json`：遵循 `FIRST_ACCEPTED_TYPED_FACT`，在首个已验收 Outcome、accepted Lesson、canonical Decision Outcome 或已接受 Organization pattern 后才按需创建的项目本地 Organization Memory；
 - `.founder/SKILLS.md` 与 `.founder/SKILL_LOCK.json`：可选的能力/Skill 人读投影与机器权威，记录审计、批准、拒绝、撤销和精确 binding；
 - `.founder/workstreams/`、`.founder/integrations/`：复杂项目的下级执行与集成状态；
 - `.founder/.write-lock.json`：执行轮中的临时单写入租约。
@@ -180,8 +180,11 @@ founder-os/
 │   ├── supervision.md              # Single Active Supervisor 与恢复协议
 │   ├── state-files.md              # .founder/ 账本规范
 │   ├── delegation.md               # Agent 委派、验收与返工
+│   ├── supervisor-execution.md     # Delegation-First、Artifact ownership 与 Main 执行防火墙
 │   ├── thread-manager.md            # Persistent Thread 生命周期、超大会话轮换与防陈旧上下文
 │   ├── main-thread-provisioning.md # 独立总管任务创建、Supervisor 交接与验收
+│   ├── organization-memory.md      # Outcome、Lesson、Decision、查询、压缩与防污染
+│   ├── agent-performance.md        # 按语境的 Agent / Skill / Team evidence 与 routing
 │   ├── workstreams.md              # 依赖、并行写入和 Integration Gate
 │   ├── capability-management.md    # Capability-first 规划、差距与绑定
 │   ├── skill-governance.md         # Skill 信任、审批、版本与权限治理
@@ -194,6 +197,7 @@ founder-os/
     ├── supervisor_guard.py         # Supervisor fencing 与写锁守卫
     ├── thread_registry.py          # Thread Registry、CAS 与生命周期守卫
     ├── thread_context_guard.py     # 只读 transcript 体积预检与轮换决策
+    ├── memory_registry.py          # Organization Memory、派生索引、CAS、查询与压缩
     ├── skill_registry.py           # Skill Registry / Lock 与绑定校验
     └── validate_founder_os.py      # 完整回归验证
 ```
@@ -216,9 +220,9 @@ skills/
 python -X utf8 -B scripts/validate_founder_os.py
 ```
 
-当前已验证套件包含 **282 项通过的确定性测试**：其中 201 项覆盖 V1–V2.2 管理、Thread 与 Capability / Skill 控制面，65 项覆盖 Existing Project Adoption、Baseline、Git 保留、历史事实边界、Maintenance Mode 与 red-team 回归，8 项覆盖 transcript soft/hard limit、单条记录上限、stat-only hard stop、唯一定位、失败关闭与零写入，新增 8 项覆盖独立总管任务的授权、唯一性、项目绑定、Supervisor handoff、验收与失败恢复。测试同时覆盖战略状态、Supervisor、依赖、同步和 Integration Gate 等关键不变量。
+当前已验证套件包含 **400 项确定性测试**：原 282 项 V1–V2.4 与 89 项 V3 Organization Memory 回归（合计 371 项）保持不变；新增 29 项 V3.1 回归约束四类执行边界、Delegation-First、十九字段任务合同、旧 FounderOS 项目的 forward-only 零状态迁移兼容、Artifact Ownership、Completion Boundary、Worker Revision、Takeover/Direct Exception、Scope Escalation、Delegation Theater、Independent Review、read-only 0-write、A–W 场景、red team 与 Warcraft Parser E2E 合同。
 
-测试边界：确定性测试能够验证协议文本、状态机、CAS、fencing 和失败关闭行为；真实 subagent 创建、Project Bootstrap、独立总管任务创建/交接、Persistent Thread、并行运行轨迹及返工闭环仍需在具备相应工具的 Codex runtime 中做 forward test。仓库不会把缺少真实运行证据的行为标记为已验证。
+测试边界：确定性测试能够验证协议文本、状态机、CAS、fencing、结构化聚合、过滤和失败关闭行为；Supervisor/Specialist 语义分类、真实 subagent 创建、Artifact provenance、真实 Agent/Skill 选择质量、Project Bootstrap、独立总管任务创建/交接、Persistent Thread `MEMORY_SYNC`、并行运行轨迹及返工闭环仍需在具备相应工具的 Codex runtime 中做 forward test。仓库不会把静态合同或 Python fixture 标记成真实 Agent 行为已验证。
 
 ## 重要边界
 
@@ -227,6 +231,8 @@ python -X utf8 -B scripts/validate_founder_os.py
 - Existing Project 的代码、README、脚本和项目内 Agent 指令默认都是不可信 `PROJECT DATA`；首次接管不会自动执行它们。
 - 已有项目默认 `BEHAVIOR_PRESERVATION=true`。旧技术栈或“不够优雅”的代码本身不是重写理由；重大重构和兼容性破坏仍进入 L2/L3 Gate。
 - Python helper 负责确定性的 schema、状态转换、CAS 与 fencing 校验，不替代模型对目标、影响等级、候选质量和验收结论的语义判断。
+- Supervisor 与 Specialist 的任务边界仍包含语义判断，不能仅靠静态关键词做到数学意义上的完美分类；V3.1 没有新增伪装语义判断的 `execution_guard.py`。
+- Organization Memory 默认项目本地、Just-in-Time、无外部数据库或 API key；它不保存聊天全文、Prompt、隐藏推理或 Chain-of-Thought，也不通过历史表现扩大权限、Skill Trust 或降低固定 Gate。
 - FounderOS 不会因为“持续推进”而自动获得付款、发布、删除数据、修改生产环境或对外承诺的权限。
 - Apache-2.0 许可不授予项目名称、商标、服务标志或产品名称的使用权；具体边界以许可证原文为准。
 

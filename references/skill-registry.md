@@ -13,6 +13,7 @@
 - [Revision 与 fingerprints](#revision-与-fingerprints)
 - [Registry mutation](#registry-mutation)
 - [Capability 到 Skill](#capability-到-skill)
+- [Skill Performance 的独立边界](#skill-performance-的独立边界)
 - [Binding](#binding)
 - [Thread baseline 与 SKILL_SYNC](#thread-baseline-与-skill_sync)
 - [只读规则](#只读规则)
@@ -180,6 +181,12 @@ Lock 必须是 `.founder/` 内 direct、单链接普通文件。symlink、juncti
 Curator 结果先由 FounderOS 对照实际文件和 [skill-governance.md](skill-governance.md) 验收。未经审计候选只可登记为 `DISCOVERED/QUARANTINED`；搜索元数据、README 或 Curator 自报不能产生 `APPROVED`。
 
 Capability Coverage 是派生视图。Skill 被 revoke/缺失后，相关 Capability 重新计算为 `PARTIALLY_COVERED / MISSING / BLOCKED`，不能保留虚假的 `AVAILABLE`。
+
+## Skill Performance 的独立边界
+
+[organization-memory.md](organization-memory.md) 可按 `skill_id + approved_version + installed_hash` 保存当前项目已验收的效果证据；升级、commit/hash 变化后建立新 performance bucket，旧版本证据只作为明确 predecessor history，不迁成新版成功统计。Skill Registry/Lock 仍是来源、Trust、风险、批准、版本、hash、runtime visibility 和 binding 的唯一机器权威。
+
+Performance 好不能把未批准、HIGH/BLOCKED、revoke、hash mismatch 或 runtime 不可见的 Skill 变成 eligible；Performance 差也不改写供应链事实。路由流程必须先通过 Registry/Lock，再在合格候选之间参考 context-specific performance。Memory mutation 不写 `SKILLS.md/SKILL_LOCK.json`，Registry mutation也不写 Performance。
 
 ## Binding
 

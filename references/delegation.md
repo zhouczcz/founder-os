@@ -1,10 +1,11 @@
 # FounderOS 委派与验收协议
 
-在项目首次创建专业子 Agent/Persistent Thread、要求返工或创建 Reviewer 前读取本文件。
+本文件保存兼容旧项目和高风险场景的完整委派合同。普通项目首次创建 Agent、返工或验收使用 `SKILL.md` 的七字段轻量合同，不读取本文件。只有多写入者、高风险/生产工作、正式审计、复杂 Persistent Thread，或旧项目已经依赖十九字段合同时才完整读取。
 
 ## 目录
 
 - [委派任务模板](#委派任务模板)
+- [Execution Firewall 字段](#execution-firewall-字段)
 - [Strategic Gate 派发前检查](#strategic-gate-派发前检查)
 - [Adoption 只读委派](#adoption-只读委派)
 - [真实 Subagent 规则](#真实-subagent-规则)
@@ -13,13 +14,14 @@
 - [任务大小与上下文](#任务大小与上下文)
 - [Lead 与嵌套委派](#lead-与嵌套委派)
 - [FounderOS 验收清单](#founderos-验收清单)
+- [Outcome Candidate 与 Memory](#outcome-candidate-与-memory)
 - [返工格式](#返工格式)
 - [Reviewer 协议](#reviewer-协议)
 - [并行安全判定](#并行安全判定)
 
 ## 委派任务模板
 
-保留原有七个核心标题 `ROLE / MISSION / CONTEXT / TASK / DELIVERABLES / CONSTRAINTS / ACCEPTANCE CRITERIA`，并加入原 V2 七个治理字段和 V2.1 `STRATEGY_SCOPE`。将下列十五个标题原样放入首次委派消息；内容必须针对当前任务，不使用泛化职责描述代替交付要求。
+保留原有七个核心标题 `ROLE / MISSION / CONTEXT / TASK / DELIVERABLES / CONSTRAINTS / ACCEPTANCE CRITERIA`、原 V2 治理字段和 V2.1 `STRATEGY_SCOPE`，再加入 V3.1 Execution Firewall 字段。将下列十九个标题原样放入首次委派消息；旧 assignment 不因缺少新字段失效，但任何新派发、返工或恢复都必须补齐当前合同。内容必须针对当前任务，不使用泛化职责描述代替交付要求。
 
 ```markdown
 ROLE
@@ -30,6 +32,9 @@ ACTIVE FounderOS 或已明确授权的 Workstream Lead（写真实 logical/runti
 
 WORKSTREAM
 Workstream ID；简单直管任务写 `none / FounderOS-direct`。
+
+EXECUTION_CLASSIFICATION
+`SPECIALIST_EXECUTION | INSPECTION`。普通业务委派默认 `SPECIALIST_EXECUTION`；Reviewer/只读验收使用 `INSPECTION`。Main 自身的 Management/Direct Exception 不伪装成 Worker assignment。
 
 MISSION
 现在需要你的原因，以及你的结果将解除哪个风险、依赖或里程碑条件。
@@ -54,6 +59,15 @@ WRITE_SCOPE
 - 同时声明解析后的 `TASK_LEVEL_EFFECTIVE_WRITE_SCOPE`；只读任务必须为空集合 `[]`
 - Skill binding 不扩大此范围；全局 Skill 安装目录不是项目 write scope
 
+ARTIFACT_OWNER
+- 写真实 stable agent/thread identity；正式业务 Artifact 默认不能是 `founder-os-main`
+- Inspection/Reviewer 不产生 Artifact 时写 `none`
+- 声明主要交付、返工和 revision responsibility 都回到该 Owner
+
+INSPECTION_WRITE_PROTECTION
+- `INSPECTION` 必须写 `read-only; TASK_LEVEL_EFFECTIVE_WRITE_SCOPE=[]`
+- `SPECIALIST_EXECUTION` 写 `not-applicable`，但仍受精确 WRITE_SCOPE 约束
+
 STRATEGY_SCOPE
 `candidate-bound | discovery-read-only | adoption-read-only | unrelated-read-only`。说明任务是否依赖某候选/已选方向；Existing Project 首次审计使用 `adoption-read-only`；不得用 `unrelated-read-only` 伪装 Discovery、Adoption 或会形成路径依赖的原型/实现。
 
@@ -66,6 +80,9 @@ DEPENDENCIES
 
 TASK
 本次要完成的有界工作。列出包含范围和排除范围。
+
+COMPLETION_BOUNDARY
+明确做到哪里即结束，以及不负责的相邻工作、项目方向、canonical 管理状态、Integration、发布或其他 Workstream；到达边界或发现扩大时停止并升级。
 
 DELIVERABLES
 - 产物、格式和准确路径
@@ -94,7 +111,18 @@ ACCEPTANCE CRITERIA
 - 使用 Skill 时，Lock/installed hash/current binding 一致且没有未完成的 SKILL_SYNC 或冲突 Primary
 ```
 
-返工与 follow-up 可引用原 assignment，不必机械重复不变字段；必须重新写明缺陷、仍有效的 WRITE_SCOPE/STRATEGY_SCOPE/DEPENDENCIES、修改内容和复验标准。创建替代 Agent 时使用完整十五字段。
+返工与 follow-up 可引用原 assignment，不必机械重复不变字段；必须重新写明缺陷、仍有效的 `EXECUTION_CLASSIFICATION / ARTIFACT_OWNER / WRITE_SCOPE / INSPECTION_WRITE_PROTECTION / COMPLETION_BOUNDARY / STRATEGY_SCOPE / DEPENDENCIES`、修改内容和复验标准。创建替代 Agent 时使用完整十九字段。
+
+## Execution Firewall 字段
+
+首次派发前，ACTIVE Main 先完整读取 [supervisor-execution.md](supervisor-execution.md) 并完成 `SUPERVISOR_ROLE_CHECK`。Task contract 中的四个 V3.1 字段不是描述性标签，而是同一 ownership/write/revision 合同：
+
+- `EXECUTION_CLASSIFICATION=SPECIALIST_EXECUTION` 表示 Main 不做主要实现；Worker 必须产生主要交付并承担返工。
+- `ARTIFACT_OWNER` 与 `WRITE_SCOPE` 必须指向同一真实执行者和精确业务范围；Main 的 ACTIVE、Integration 或管理身份不授予隐含 ownership。
+- `COMPLETION_BOUNDARY` 防止 Worker 修改全局方向，也防止 Main 把 Worker 的交付扩大成自己实施相邻功能。
+- `INSPECTION_WRITE_PROTECTION` 使 Reviewer/Main Inspection 保持 0-write；发现问题走 revision，不顺手修改。
+
+若 Worker 正在 `WORKING`，Main 不得重复其实现。Worker `BLOCKED`/验收失败时先补 context/sync、原 Owner revision、Capability reassess 或 reassign；只有满足 `SUPERVISOR_TAKEOVER_JUSTIFIED` 且按 reference 记录 Direct Exception，Main 才能临时接管。Agent 只给建议、Main 完成主要 Artifact、复制 Worker 代码绕过 owner、假 Agent/Thread 或 Main/Worker 双写均是 `DELEGATION_THEATER`，不能 accepted 或记为成功委派。
 
 ## Strategic Gate 派发前检查
 
@@ -151,7 +179,7 @@ Agent 的聊天自述不是创建证据。验收至少检查实际工具事件�
 
 Agent 是身份，Thread 是办公室 binding。一次性调查/检查/验证默认使用本节的真实 subagent；只有跨阶段、反复收任务、需要长期上下文或负责 Workstream 的角色，才按 [thread-manager.md](thread-manager.md) 创建 Persistent Agent + 真实 Thread。
 
-Persistent Thread 的首次 handshake/每次任务除十五个委派标题外，还必须携带：
+Persistent Thread 的首次 handshake/每次任务除十九个委派标题外，还必须携带：
 
 - stable `agent_id`、`thread_record_id`、binding generation 和 project binding；
 - runtime 实际返回的 Thread/host identity（由 FounderOS 记录，不能让 Worker 自造）；
@@ -212,7 +240,7 @@ Lead 的嵌套 spawn 不继承一个绕过 Gate 的空白授权。每个 Special
 
 Agent 返回后，FounderOS 必须亲自完成：
 
-1. 确认产物存在且位于约定范围。
+1. 确认主要产物确由合同中的真实 `ARTIFACT_OWNER` 产生、存在且位于约定范围；Main 代写或复制粘贴不算 Worker 交付。
 2. 将交付物逐条映射到 `DELIVERABLES` 和 `ACCEPTANCE CRITERIA`。
 3. 阅读关键原始内容，不只依赖 Agent 摘要。
 4. 复跑合理的测试、查询、渲染、计算或来源核对。
@@ -224,6 +252,14 @@ Agent 返回后，FounderOS 必须亲自完成：
 10. 使用 Skill 时再次确认项目批准、installed hash、Lock/version、Primary/Supporting 优先级、有效权限和 `SKILL_SYNC`；旧/revoked binding 的输出不得 accepted。
 
 超时不是终态。若写入型 Agent 超时或需要替换，先中断并确认其不再运行，检查局部写入，释放 `AGENTS.md` 中登记的写入所有权，再把相同范围交给其他 Agent。
+
+## Outcome Candidate 与 Memory
+
+Worker、Reviewer、Lead、Skill 和 Thread 只能随交付提交结构化 **Outcome Candidate**：task/runtime identity、observable artifact/test/review/integration evidence、局部限制和建议 attribution。它们不能直接写 `.founder/memory/MEMORY.json`，不能自评 performance/confidence/总分、要求“永久使用我”，也不能把对话/Prompt/推理全文塞入 evidence。
+
+ACTIVE FounderOS 完成 Acceptance、必要 Reviewer 与 Integration 后，才决定 outcome 是否 finalized、revision severity、attribution kind/confidence 和 retention，并通过 `memory_registry.py record-outcome` 写入。任务进行中、Thread `COMPLETED`、Reviewer 单独 PASS、Agent 自述或未处置上游失败都不更新 Performance。later regression 使用追加 invalidation/revision 事件重算，不删除原 PASS。
+
+验收与 Memory mutation 是两个明确步骤：先以当前 canonical baseline 接受成果，再在短项目锁内记录 outcome 并 checkpoint；Memory 写失败不会把未记录历史伪装成已记录，也不会反向撤销已经有独立证据的项目 artifact。老板摘要应诚实区分 `accepted` 与 `memory-recorded`。
 
 ## 返工格式
 
@@ -262,6 +298,8 @@ Reviewer 在 FounderOS 初检之后使用。向 Reviewer 提供原始成果、�
 Reviewer 不直接改写项目方向，也不自动推翻 FounderOS。FounderOS 根据证据作最终决定，并在需要时把具体问题交回执行 Agent。
 
 Reviewer、Advisor 和 Auditor 默认只读，不修改 canonical 账本、Supervisor record、全局 ROADMAP 或项目阶段。跨 Workstream Reviewer 可检查 Integration Gate，但只有 ACTIVE FounderOS 能接受 Gate 并更新全局状态。
+
+Reviewer contract 必须使用 `EXECUTION_CLASSIFICATION=INSPECTION`、`ARTIFACT_OWNER=none`、`WRITE_SCOPE=read-only`、`TASK_LEVEL_EFFECTIVE_WRITE_SCOPE=[]` 与有效 `INSPECTION_WRITE_PROTECTION`。若 Main 经 Direct Exception 实现重要 Artifact，Reviewer 必须与 Main 独立，Main 自己的复核不能作为唯一 PASS。
 
 Reviewer 也必须声明 `STRATEGY_SCOPE`。Discovery/Choice 中可以对候选比较做 `discovery-read-only` 独立检查，但 Reviewer 不能把自己的 PASS 当作 Founder 选择、不能写 selected strategy，也不能让 Integration 越过非 `OPERATING` Gate。
 

@@ -13,6 +13,7 @@
 - [REUSE BEFORE ACQUIRE](#reuse-before-acquire)
 - [Just-in-Time 获取](#just-in-time-获取)
 - [Agent 与 Skill 的选择](#agent-与-skill-的选择)
+- [Memory-aware evidence](#memory-aware-evidence)
 - [Persistent 与 Task Agent](#persistent-与-task-agent)
 - [Strategic Gate](#strategic-gate)
 - [依赖、并行与验收](#依赖并行与验收)
@@ -141,6 +142,14 @@ Curator 搜索应有明确：
 5. 只有工作本身需要独立身份/上下文时才创建新 Agent。
 
 “缺能力”不自动等于“缺人”，“有 Skill”也不自动等于“应创建员工”。创建 Agent 仍按 [delegation.md](delegation.md)；Skill 获取与绑定按 [skill-governance.md](skill-governance.md)。
+
+## Memory-aware evidence
+
+Capability Plan 冻结后，ACTIVE Main 可按当前 task type、capability、component、workstream 和 project stage 有界查询 [organization-memory.md](organization-memory.md)，比较同一语境下已验收的 Agent、Team、Skill exact-version 与失败归因证据。Memory 只调整 routing/review 建议：它不反向改写任务需要、不替代 Capability coverage、不会自动创建员工或获取 Skill。
+
+冷启动 Agent/Skill 标 `UNPROVEN + LOW confidence`，不是“差”；一个成功样本仍是弱证据。历史 evidence 必须与当前语境匹配，Architecture 的强证据不能替代 UI 证据。无相关记录时保留探索空间，按通用能力、当前职责、风险和验收选择，不让历史选择形成永久垄断。
+
+Skill performance 只有在 independent Trust/approval/hash/runtime checks 全通过后才参与同等候选比较；Performance 绝不提高 Trust、扩大权限、解除 Review 或 Strategic Gate。发生撤回、后续失效、版本变化或 context mismatch 时，降级或排除相应证据，不原地覆盖历史。
 
 ## Persistent 与 Task Agent
 

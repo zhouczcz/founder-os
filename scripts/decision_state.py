@@ -967,13 +967,20 @@ def _mutate_strategy(
     preflight_next, _details = mutate(copy.deepcopy(preflight_state), founder)
     validate_strategy(preflight_next, root)
 
-    nonce = _acquire_strategy_lock(
-        lock_path,
-        root=root,
-        owner=owner,
-        expected_strategy_sha=expected_strategy_sha,
-        expected_state_sha=expected_state_sha,
+    commit_mutex = guard.acquire_governance_commit_mutex(
+        str(root), operation=f"strategy:{operation}"
     )
+    try:
+        nonce = _acquire_strategy_lock(
+            lock_path,
+            root=root,
+            owner=owner,
+            expected_strategy_sha=expected_strategy_sha,
+            expected_state_sha=expected_state_sha,
+        )
+    except Exception:
+        commit_mutex.close()
+        raise
     release_lock = True
     old_raw: bytes | None = None
     try:
@@ -1001,6 +1008,7 @@ def _mutate_strategy(
                 owner=owner,
                 activation_token=activation_token,
                 expected_state_sha=expected_state_sha,
+                _commit_mutex_held=True,
             )
         except guard.PartialCommit as exc:
             release_lock = False
@@ -1038,15 +1046,18 @@ def _mutate_strategy(
             "changed_paths": [str(strategy_path), str(founder / guard.STATE_NAME), str(founder / guard.LOCK_NAME)],
         }
     finally:
-        if release_lock:
-            try:
-                _release_strategy_lock(lock_path, owner=owner, nonce=nonce)
-            except (guard.GuardError, OSError) as exc:
-                raise StrategyPartialCommit(
-                    "Strategy mutation completed but its transaction lock could not be released",
-                    changed_paths=[str(lock_path)],
-                    recovery_action="clear-strategy-lock-after-audit",
-                ) from exc
+        try:
+            if release_lock:
+                try:
+                    _release_strategy_lock(lock_path, owner=owner, nonce=nonce)
+                except (guard.GuardError, OSError) as exc:
+                    raise StrategyPartialCommit(
+                        "Strategy mutation completed but its transaction lock could not be released",
+                        changed_paths=[str(lock_path)],
+                        recovery_action="clear-strategy-lock-after-audit",
+                    ) from exc
+        finally:
+            commit_mutex.close()
 
 
 def recover_strategy_lock(
@@ -1059,6 +1070,7 @@ def recover_strategy_lock(
     lock_owner: str,
     predecessor_liveness: str,
     authorization_ref: str,
+    _commit_mutex_held: bool = False,
 ) -> dict[str, Any]:
     """Reconcile a stranded Strategy transaction under the current fence."""
     owner = _text(owner, "owner")
@@ -1070,6 +1082,19 @@ def recover_strategy_lock(
     expected_state_sha = _sha_or_absent(expected_state_sha, "expected_state_sha")
     expected_strategy_sha = _sha_or_absent(expected_strategy_sha, "expected_strategy_sha")
     root, founder, _created = guard.resolve_project_root(project)
+    if not _commit_mutex_held:
+        with guard.acquire_governance_commit_mutex(
+            str(root), operation="strategy:recover"
+        ):
+            return recover_strategy_lock(
+                str(root), owner=owner, activation_token=activation_token,
+                expected_state_sha=expected_state_sha,
+                expected_strategy_sha=expected_strategy_sha,
+                lock_owner=lock_owner,
+                predecessor_liveness=predecessor_liveness,
+                authorization_ref=authorization_ref,
+                _commit_mutex_held=True,
+            )
     fence = guard.verify_fence(str(root), owner=owner, activation_token=activation_token)
     if fence["state_sha"] != expected_state_sha:
         raise guard.Conflict("Supervisor state CAS mismatch before Strategy recovery")
@@ -1104,6 +1129,7 @@ def recover_strategy_lock(
             owner=owner,
             activation_token=activation_token,
             expected_state_sha=expected_state_sha,
+            _commit_mutex_held=True,
         )
         next_state_sha = checkpoint["state_sha"]
     _direct_file(lock_path, "Strategy transaction lock")
