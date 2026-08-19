@@ -125,6 +125,17 @@ Main 接管 Worker implementation 前必须满足 `SUPERVISOR_TAKEOVER_JUSTIFIED
 
 Founder 明确要求 Main 对某个当前任务亲自执行时，可以在该 task/scope 内临时覆盖。一次授权不永久扩展、不迁移到相邻任务，也不绕过 L2/L3、破坏性、外部或生产 Gate。
 
+### Founder-Authorized Micro Cleanup
+
+用户已针对当前动作逐字授权、目标是逐项列出的单个或少量文件、且对象为可再生成的中间产物（构建输出、缓存、临时证据、历史 QA 生成物）时，按 Founder Explicit Override 由 Main 直接执行，**不派 Worker、不派独立 Reviewer、不做多角色交叉复核**：
+
+- 预检 = 一次只读身份确认（精确路径加大小或 hash 之一即可），禁止通配符；
+- 执行 = Main 直接按精确路径操作；
+- 验收 = 目标不存在（或已按授权变更）加受影响目录一次 listing 对比；禁止全库递归扫描、全量 manifest 重算或重复 hash 无关源码；
+- 记录 = 一条 `SUPERVISOR_DIRECT_EXECUTION`（`files_touched` 即该清单），授权、执行与状态更新合并为同一回合的一次治理写入。
+
+Artifact Owner 规则不适用于不属于任何当前交付物的中间产物。目标涉及源码、canonical 文件、不可再生成数据，或用户未逐项列出的批量/模式匹配删除时，本例外不适用，回到正常委派与 Owner 流程。
+
 除 genuinely trivial 外，每次 Direct Exception 都记录 `SUPERVISOR_DIRECT_EXECUTION`，至少包含：
 
 ```text

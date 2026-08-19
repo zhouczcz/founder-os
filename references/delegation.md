@@ -262,6 +262,8 @@ Agent 返回后，FounderOS 必须亲自完成：
 
 超时不是终态。若写入型 Agent 超时或需要替换，先中断并确认其不再运行，检查局部写入，释放 `AGENTS.md` 中登记的写入所有权，再把相同范围交给其他 Agent。
 
+**验收检查的规模必须与变更规模成比例。** 单文件或小 diff 的验收默认只检查目标本身与受影响目录的一次 listing 对比；禁止为其执行全树递归扫描、全量 manifest 重算、全部源码重新 hash 或与变更无关的测试重跑。已有可信 manifest/测试基线且输入未变化时，引用基线做增量对比，不重复生成。独立 Reviewer 只用于架构、安全、生产、重大成本或难回滚成果；用户已当面授权的微型清理与琐碎修正不额外派 Reviewer。
+
 ## Outcome Candidate 与 Memory
 
 Worker、Reviewer、Lead、Skill 和 Thread 只能随交付提交结构化 **Outcome Candidate**：task/runtime identity、observable artifact/test/review/integration evidence、局部限制和建议 attribution。它们不能直接写 `.founder/memory/MEMORY.json`，不能自评 performance/confidence/总分、要求“永久使用我”，也不能把对话/Prompt/推理全文塞入 evidence。
