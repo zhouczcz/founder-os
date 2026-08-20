@@ -43,8 +43,8 @@ class AdvisorSkillTests(unittest.TestCase):
 
     def test_frontmatter_declares_advisor_not_executor(self) -> None:
         frontmatter = self.skill.split("---")[1]
-        for token in ("军师", "任务提示词", "一次性发送", "从不等待、轮询或读取",
-                      "不写业务代码", "不执行实现"):
+        for token in ("军师", "任务提示词", "对齐项目当前状态", "交用户粘贴",
+                      "不创建或管理工作对话", "不写业务代码", "不执行实现"):
             self.assertIn(token, frontmatter)
 
     def test_size_and_line_caps(self) -> None:
@@ -63,20 +63,28 @@ class AdvisorSkillTests(unittest.TestCase):
     def test_hard_boundary_limits_writes_to_founder_state(self) -> None:
         self.require(
             "全部写入权限是 `.founder/PROJECT.md`、`.founder/STATUS.md`、`.founder/DECISIONS.md`",
-            "等待、轮询、读取或恢复任何工作对话的内容",
+            "任务提示词只输出在对话里，交用户自己粘贴",
+            "创建、驱动、等待、轮询、读取或恢复任何工作对话",
             "执行构建、测试或部署命令",
             "复跑用户或工作对话已经跑过的测试",
             "`.founder/**` 之外的一切写入",
             "封装进任务提示词",
         )
 
-    def test_one_shot_dispatch_is_allowed_but_reading_is_not(self) -> None:
+    def test_dispatch_capability_is_removed(self) -> None:
+        for token in ("一次性投递", "一次性发送", "发完即止", "创建一个新工作对话并发送"):
+            self.assertNotIn(token, self.skill, f"dispatch capability present: {token}")
+        self.require("只经由两条通道进入军师：用户转达的内容和 git 证据")
+
+    def test_timely_project_alignment(self) -> None:
+        self.ordered("## 及时对齐项目", "## 想法澄清")
         self.require(
-            "一次性投递",
-            "发完即止",
-            "回退为用户手动粘贴，不得虚构已发送",
-            "只经由两条通道进入军师：用户转达的内容和 git 证据",
-            "两种投递内容一致",
+            "而不是上次记账时的记忆",
+            "比对 git HEAD 与 `last_indexed_commit`",
+            "轻量对齐",
+            "顺手更新 STATUS 与 `last_indexed_commit`",
+            "变了也不重读全仓库",
+            "以 git 为准并指出差异",
         )
 
     def test_user_relay_qa_channel(self) -> None:
@@ -93,7 +101,7 @@ class AdvisorSkillTests(unittest.TestCase):
             "5–8 个任务",
             "不读取、不继承旧会话聊天记录",
             "被推翻的方案、失败尝试和过期数字不写入状态",
-            "开新对话重新投递",
+            "拿新提示词直接开新对话",
         )
 
     def test_orchestration_vocabulary_is_retired(self) -> None:
@@ -155,7 +163,19 @@ class AdvisorSkillTests(unittest.TestCase):
             "上下文胶囊",
             "`CHANGED_FILES / TESTS_RUN / RESULTS / DECISIONS / LEFTOVERS`",
             "一个任务一份提示词",
-            "范围过大时先拆分",
+            "先拆分成多个任务",
+        )
+
+    def test_brief_is_default_with_escalation_signals(self) -> None:
+        self.require(
+            "默认用精简简报",
+            "升级信号",
+            "4 个以上文件",
+            "方案取舍",
+            "估不准触碰面",
+            "Bug 修复永远用简报",
+            "简报与完整模板都保留此块",
+            "以用户为准",
         )
 
     def test_open_task_registry_and_conflict_guard(self) -> None:
@@ -165,7 +185,8 @@ class AdvisorSkillTests(unittest.TestCase):
         )
 
     def test_result_ingest_reads_git_increment_and_stays_honest(self) -> None:
-        self.ordered("## 读结果与记账（RESULT_INGEST）", "`last_indexed_commit`")
+        ingest = self.skill.split("## 读结果与记账（RESULT_INGEST）", 1)[1]
+        self.assertIn("`last_indexed_commit`", ingest)
         self.require(
             "只看新 commit 与相关 diff",
             "`git init`",
@@ -224,10 +245,20 @@ class PromptPlaybookTests(unittest.TestCase):
             self.assertIn(token, self.playbook)
 
     def test_generation_rules(self) -> None:
-        for token in ("一个任务一份提示词", "自包含", "按任务大小裁剪",
-                      "`SCOPE`、`TESTS`、`REPORT` 三段永远保留",
+        for token in ("一个任务一份提示词", "自包含", "默认用精简简报", "升级信号",
+                      "`SCOPE`、`TESTS`、`REPORT` 三段在任何形式下永远保留",
                       "先确认它已完成或错开范围"):
             self.assertIn(token, self.playbook)
+
+    def test_brief_example_and_escalation_sections(self) -> None:
+        self.assertIn("## 精简简报（默认）", self.playbook)
+        self.assertIn("## 升级信号", self.playbook)
+        brief = self.playbook.split("## 范例二：Bug 修复（精简简报）", 1)[1]
+        brief = brief.split("## 范例三", 1)[0]
+        self.assertNotIn("CONTEXT", brief)
+        self.assertNotIn("APPROACH", brief)
+        for field in ("GOAL", "SCOPE", "TESTS", "REPORT"):
+            self.assertIn(field, brief)
 
     def test_examples_cover_feature_bug_research(self) -> None:
         for token in ("## 范例一：新功能", "## 范例二：Bug 修复", "## 范例三：调研任务",

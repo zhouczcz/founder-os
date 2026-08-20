@@ -1,16 +1,17 @@
 # FounderOS V5.0 Project Advisor
 
-An advisor-style technical counselor Skill for solo developers: **it thinks, you build**. It distills your messy ideas into confirmed requirements, checks direction against project state, generates task prompts, and ingests results to keep the project summary current. Implementation happens in work conversations that you drive yourself — the advisor may fire-and-forget a prompt into a fresh conversation for you, but it never waits on, polls, or reads those conversations (you relay the output), never writes business code, and never runs builds or tests.
+An advisor-style technical counselor Skill for solo developers: **it thinks, you build**. It distills your messy ideas into confirmed requirements, checks direction against project state, generates task prompts, and ingests results to keep the project summary current. Before giving any advice it realigns with the project's current state via the git delta, so recommendations rest on reality rather than stale memory. Implementation happens in work conversations that you drive yourself — the advisor never creates, manages, or reads conversations (you relay the output), never writes business code, and never runs builds or tests.
 
 ## The loop
 
 ```text
 You describe an idea (rambling voice-transcribed input is fine)
+  → Advisor realigns with current project state (incremental if HEAD moved)
   → Idea clarification: organize → ask gaps → read back ("is this right?")
   → Fit check: duplicates / conflicts / simpler paths / risks
-  → Six-field task prompt (GOAL/CONTEXT/APPROACH/SCOPE/TESTS/REPORT)
-  → Advisor fire-and-forgets it into a fresh work conversation (or you paste it);
-    you drive execution and acceptance yourself
+  → Task prompt: lean brief by default (GOAL/SCOPE/TESTS/REPORT),
+    full six fields for big tasks
+  → You paste it into a fresh work conversation and drive execution yourself
   → Relay worker output back anytime: advisor answers questions and
     drafts revision prompts from it
   → Say "read the result": advisor reads the git delta + REPORT block,
