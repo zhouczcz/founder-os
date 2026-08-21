@@ -43,8 +43,9 @@ class AdvisorSkillTests(unittest.TestCase):
 
     def test_frontmatter_declares_advisor_not_executor(self) -> None:
         frontmatter = self.skill.split("---")[1]
-        for token in ("军师", "任务提示词", "对齐项目当前状态", "交用户粘贴",
-                      "不创建或管理工作对话", "不写业务代码", "不执行实现"):
+        for token in ("军师", "任务提示词", "对齐项目当前状态",
+                      "总结本次对话要完成什么", "一次性发送",
+                      "从不等待、轮询或读取", "不写业务代码", "不执行实现"):
             self.assertIn(token, frontmatter)
 
     def test_size_and_line_caps(self) -> None:
@@ -63,18 +64,24 @@ class AdvisorSkillTests(unittest.TestCase):
     def test_hard_boundary_limits_writes_to_founder_state(self) -> None:
         self.require(
             "全部写入权限是 `.founder/PROJECT.md`、`.founder/STATUS.md`、`.founder/DECISIONS.md`",
-            "任务提示词只输出在对话里，交用户自己粘贴",
-            "创建、驱动、等待、轮询、读取或恢复任何工作对话",
+            "等待、轮询、读取或恢复任何工作对话的内容",
             "执行构建、测试或部署命令",
             "复跑用户或工作对话已经跑过的测试",
             "`.founder/**` 之外的一切写入",
             "封装进任务提示词",
         )
 
-    def test_dispatch_capability_is_removed(self) -> None:
-        for token in ("一次性投递", "一次性发送", "发完即止", "创建一个新工作对话并发送"):
-            self.assertNotIn(token, self.skill, f"dispatch capability present: {token}")
-        self.require("只经由两条通道进入军师：用户转达的内容和 git 证据")
+    def test_dispatch_requires_user_confirmation(self) -> None:
+        self.require(
+            "一次性投递",
+            "发完即止",
+            "投递前必须先向用户总结本次对话要完成什么",
+            "经用户明确同意才发送",
+            "未经同意永不投递",
+            "回退为用户手动粘贴，不得虚构已发送",
+            "只经由两条通道进入军师：用户转达的内容和 git 证据",
+            "生成后先向用户做投递确认",
+        )
 
     def test_timely_project_alignment(self) -> None:
         self.ordered("## 及时对齐项目", "## 想法澄清")
