@@ -1,6 +1,6 @@
 # FounderOS V5.0 Project Advisor
 
-An advisor-style technical counselor Skill for solo developers: **it thinks, you build**. It distills your messy ideas into confirmed requirements, checks direction against project state, generates task prompts, and ingests results to keep the project summary current. Before giving any advice it realigns with the project's current state via the git delta, so recommendations rest on reality rather than stale memory. Implementation happens in work conversations that you drive yourself — after confirming with you what a conversation is meant to accomplish, the advisor may fire-and-forget the prompt into a fresh one, but it never waits on, polls, or reads conversations (you relay the output), never writes business code, and never runs builds or tests.
+An advisor-style technical counselor Skill for solo developers: **it thinks, you build**. It distills your messy ideas into confirmed requirements, checks direction against project state, flags risks, and gives you recommendations — then you implement in your own conversation. Afterwards it reads the git delta, updates the project summary, and answers questions or helps diagnose anytime. The advisor never writes implementation prompts for you, never creates or drives work conversations, never writes business code, and never runs builds or tests.
 
 ## The loop
 
@@ -9,22 +9,15 @@ You describe an idea (rambling voice-transcribed input is fine)
   → Advisor realigns with current project state (incremental if HEAD moved)
   → Idea clarification: organize → ask gaps → read back ("is this right?")
   → Fit check: duplicates / conflicts / simpler paths / risks
-  → Task prompt: lean brief by default (GOAL/SCOPE/TESTS/REPORT),
-    full six fields for big tasks
-  → Dispatch check: confirm what this conversation should accomplish
-  → Advisor fires it into a fresh work conversation (or you paste it);
-    you drive execution and acceptance yourself
-  → Relay worker output back anytime: advisor answers questions and
-    drafts revision prompts from it
-  → Say "read the result": advisor reads the git delta + REPORT block,
-    updates project state, suggests next steps
+  → Recommendation: how / why / trade-offs — only for what you asked, no extra hardening
+  → You implement it yourself, with full context
+  → Stuck? Relay the error/symptom back: advisor answers and diagnoses
+  → Say "read the result": advisor reads the git delta, updates state, suggests next steps
 ```
-
-When the advisor session itself grows long, it proactively suggests rotating: settle the books first, then start a fresh advisor session. `.founder` plus git is the only handoff — conclusions that were overturned in the old chat never follow you into the new one.
 
 ## Why V5
 
-V4 was a supervisor that created and drove real work conversations, accepted deliverables, and managed rework under a full governance protocol. In practice, for a solo developer the orchestration and redundant verification cost far more than they returned (see `legacy/`). V5 hands execution back to the user; the advisor keeps exactly three jobs: **think clearly (clarification and anti-sycophancy), watch direction (fit checks and recommendations), remember everything (`.founder` project state)**.
+V4 was a supervisor that auto-created and drove work conversations; the governance overhead dwarfed the payoff. V5 first handed execution back to the user but still generated implementation prompts — in practice a zero-context worker treats every constraint the advisor writes (security hardening, least privilege, allowlists...) as a hard order and implements it faithfully, which repeatedly broke the actual feature. So V5 narrows to a **pure advisor**: it keeps just three jobs — **think clearly (clarification and anti-sycophancy), watch direction (fit checks, recommendations, diagnosis), remember everything (`.founder` state)**. You implement in your own single conversation, with full context and judgment, free of mechanically-applied constraints.
 
 The advisor's entire write scope is `.founder/PROJECT.md`, `.founder/STATUS.md`, and `.founder/DECISIONS.md`.
 
@@ -34,13 +27,11 @@ The advisor's entire write scope is `.founder/PROJECT.md`, `.founder/STATUS.md`,
 founder-os/
 ├── SKILL.md                     # V5 advisor protocol (the only default load)
 ├── agents/openai.yaml           # UI metadata
-├── references/
-│   └── prompt-playbook.md       # task prompt template and worked examples
 ├── scripts/
 │   └── validate_founder_os.py   # static regression suite
-└── legacy/                      # archived V4.1 supervisor protocol (not installed, never loaded)
+└── legacy/                      # archived protocols (not installed, never loaded)
     ├── SKILL-v41.md
-    ├── references/              # old governance protocols (delegation, thread-manager, ...)
+    ├── references/              # V4.1 governance + the retired V5 prompt handbook
     └── scripts/                 # old helper scripts and the 448-test legacy suite
 ```
 
@@ -50,7 +41,7 @@ founder-os/
 python -B scripts/validate_founder_os.py
 ```
 
-Pure static checks: protocol boundaries, the clarification loop, the prompt template, the result-ingest protocol, state-file rules, and retirement of orchestration vocabulary. No runtime simulation, no external dependencies.
+Pure static checks: protocol boundaries, timely alignment, the clarification loop, the "no extra hardening" advice rule, diagnosis, the result-ingest protocol, state-file rules, and retirement of orchestration vocabulary. No runtime simulation, no external dependencies.
 
 ## Project state files
 
